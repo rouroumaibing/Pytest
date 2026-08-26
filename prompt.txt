@@ -1,0 +1,34 @@
+# 任务
+设计通用python自动化测试框架，适用于“REST API + SSH”被测系统，零业务耦合
+
+# 核心模块
+
+## 1.ResourcePool
+YAML持久化资源池，支持acquire/release（任意条件过滤）、重试（retries + interval）、批量分配（acquire_batch）、跨进程互斥（FileLock）。
+
+## 2.SSHExector
+paramiko 封装，支持直连和跳板（tunnel转发），命令执行、文件传输、架构探测、日志脱敏。
+
+## 3.BaseClient
+requests封装，可插拔认证（Token/Cookie/ApiKey/自定义）、extra_header、重试、摘要日志、统一异常。
+
+## 4.SharedFixtureGuard
+xdist并发下fixture创建/清理互斥，状态持久化（JSON）、超时接管（防奔溃死锁）。
+
+## 5.ConfigLoader
+YAML + 环境变量 + Pydantic校验，多环境支持。
+
+## 6.TestContext
+测试级资源注册 + 自动清理（try/finally），与SharedFixtureGuard配合。
+
+# 技术栈
+pytest、pytest-xdist、requests、paramiko、pydantic、PyYAML、filelock
+
+# 约束
+- 零业务耦合，模块可独立使用
+- 提供conftest.py示例和配置文件实力
+- 类型注解完整、docstring完整
+
+# 输出
+先输出目录结构和核心接口，确认后再实现。
+

@@ -1,0 +1,34 @@
+# =====================================================================
+# 资源池初始数据示例(config/resource_pool.yaml)
+# 保留字段:id / state / owner / locked_at;其余均为业务字段,
+# acquire 的 query/filter 条件作用于整条记录。
+# 可直接把该文件提交到仓库作为"初始库存",运行期由 ResourcePool 维护状态。
+# =====================================================================
+resources:
+  - id: node-01
+    state: free
+    owner: null
+    locked_at: null
+    host: 192.168.1.11
+    role: storage
+    tags: [ssd, 10g]
+  - id: node-02
+    state: free
+    owner: null
+    locked_at: null
+    host: 192.168.1.12
+    role: compute
+    tags: [gpu]
+  - id: node-03
+    state: free
+    owner: null
+    locked_at: null
+    host: 192.168.1.13
+    role: compute
+    tags: [gpu, 25g]
+  - id: vm-admin
+    state: free
+    owner: null
+    locked_at: null
+    host: 192.168.1.20
+    role: admin

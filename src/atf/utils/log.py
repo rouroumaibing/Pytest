@@ -39,9 +39,6 @@ def setup_logging(
     _configured = True
 
 
-def get_logger(name: str) -> logging.Logger:
-    """按名称获取 logger,保证未显式初始化时也有基础格式。"""
-    logger = logging.getLogger(name)
-    if not logger.handlers and not _configured:
-        logger.addHandler(logging.NullHandler())
-    return logger
+def get_logger(name: str) -> logging.Logger:  # pragma: no cover - 保留兼容薄封装
+    """按名称获取 logger,直接委托标准库(向后兼容旧调用点)。"""
+    return logging.getLogger(name)

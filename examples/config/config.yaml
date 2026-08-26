@@ -18,7 +18,6 @@ default:
     port: 22
     timeout: 10.0
   pool:
-    stale_timeout: 1800     # 资源被占用超过该秒数视为僵尸,可被回收
     lock_timeout: 30
   guard:
     wait_ready_timeout: 600 # 共享 fixture 等待创建完成的超时
@@ -51,10 +50,6 @@ envs:
     ssh:
       host: 192.168.2.10
       key_file: ~/.ssh/id_ed25519
-      jump:                  # 经跳板机隧道访问被测机
-        host: 192.168.2.1
-        username: jumpuser
-        password: jump-password-please-change
     pool:
       path: config/resource_pool.yaml
 
@@ -69,9 +64,5 @@ envs:
     ssh:
       host: 10.0.0.10
       key_file: ~/.ssh/id_ed25519
-      via:                   # 与 jump 等价,由代码统一解析
-        host: 10.0.0.1
-        username: jumpuser
-        key_file: ~/.ssh/id_ed25519
     pool:
       path: config/resource_pool_prod.yaml

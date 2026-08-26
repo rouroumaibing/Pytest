@@ -1,14 +1,12 @@
-"""SSHExecutor:paramiko 封装,支持直连与跳板(tunnel 转发)。
+"""SSHExecutor:paramiko 封装,支持直连。
 
 能力:
 
-- **直连 / 多层跳板**:``SSHTarget(via=...)`` 声明跳板,``via`` 可嵌套形成多层
-  跳板链;``connect()`` 沿链逐跳建立 ``direct-tcpip`` 隧道(对上层完全透明);
 - **命令执行**:流式读取 stdout/stderr,带超时与退出码检查;
-- **文件传输**:SFTP 上传/下载;
+- **文件传输**:SFTP 上传/下载,或 ``scp`` 协议变体(零额外依赖);
 - **架构探测**:`detect_arch` 返回 ``x86_64`` / ``aarch64`` 等,
   `probe_system` 返回 os/kernel/hostname 等概要;
-- **日志脱敏**:命令与输出进入日志前统一过 :class:`Sanitizer`,
+- **日志脱敏**:命令与输出进入日志前统一过 :func:`atf.utils.sanitizer.mask_text`,
   口令、令牌、私钥不会落盘。
 
 零业务耦合:不预设任何命令模板,业务侧自行组装命令字符串。
@@ -17,26 +15,25 @@
 from __future__ import annotations
 
 import select
-import socket
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import paramiko
 
-from atf.exceptions import SSHError
+from atf.exceptions import TransportError
 from atf.utils.log import get_logger
-from atf.utils.sanitizer import DEFAULT_SANITIZER, Sanitizer
+from atf.utils.sanitizer import DEFAULT_SANITIZER
 
 _logger = get_logger("atf.ssh")
 
 
-class SSHConnectError(SSHError):
-    """建立 SSH 连接(直连或隧道)失败。"""
+class SSHConnectError(TransportError):
+    """建立 SSH 连接失败。"""
 
 
-class SSHCommandError(SSHError):
+class SSHCommandError(TransportError):
     """命令退出码非零(check=True 时抛出)。
 
     Attributes:
@@ -51,38 +48,12 @@ class SSHCommandError(SSHError):
         )
 
 
-class SSHTransferError(SSHError):
-    """SFTP 传输失败。"""
+class SSHTransferError(TransportError):
+    """SFTP / SCP 传输失败。"""
 
 
-class SSHTimeoutError(SSHError):
+class SSHTimeoutError(TransportError):
     """命令执行超过 timeout。"""
-
-
-@dataclass
-class SSHTarget:
-    """一个 SSH 连接目标(直连目标或跳板机各用一个实例)。
-
-    Attributes:
-        host: 主机地址。
-        port: SSH 端口。
-        username: 登录用户。
-        password: 口令认证(与 key_file 二选一,亦可都为空走 ssh-agent)。
-        key_file: 私钥文件路径。
-        key_passphrase: 私钥口令。
-        timeout: TCP/认证超时秒数。
-        via: 跳板机;可嵌套形成多层跳板链(target 经 j1 经 j2 … 最终到目标),
-            由 ``connect()`` 沿 ``via`` 链逐跳建立 ``direct-tcpip`` 隧道。
-    """
-
-    host: str
-    port: int = 22
-    username: str = "root"
-    password: Optional[str] = None
-    key_file: Optional[str] = None
-    key_passphrase: Optional[str] = None
-    timeout: float = 10.0
-    via: Optional["SSHTarget"] = None
 
 
 @dataclass
@@ -118,23 +89,40 @@ class SSHExecutor:
 
     def __init__(
         self,
-        target: SSHTarget,
+        host: str,
         *,
-        sanitizer: Optional[Sanitizer] = None,
+        username: str = "root",
+        password: Optional[str] = None,
+        port: int = 22,
+        key_file: Optional[str] = None,
+        key_passphrase: Optional[str] = None,
+        timeout: float = 10.0,
+        sanitizer: Optional[Callable[[str], str]] = None,
         keepalive: int = 15,
     ) -> None:
         """创建执行器(惰性连接,首次 :meth:`run` 前会自动 :meth:`connect`)。
 
         Args:
-            target: 连接目标,含可选跳板。
+            host: 主机地址。
+            username: 登录用户。
+            password: 口令认证(与 key_file 二选一,亦可都为空走 ssh-agent)。
+            port: SSH 端口。
+            key_file: 私钥文件路径。
+            key_passphrase: 私钥口令。
+            timeout: TCP/认证超时秒数。
             sanitizer: 日志脱敏器;缺省用进程级默认实例。
             keepalive: SSH keepalive 包间隔秒数(0 关闭)。
         """
-        self._target = target
+        self._host = host
+        self._port = port
+        self._username = username
+        self._password = password
+        self._key_file = key_file
+        self._key_passphrase = key_passphrase
+        self._timeout = timeout
         self._sanitizer = sanitizer or DEFAULT_SANITIZER
         self._keepalive = keepalive
         self._client: Optional[paramiko.SSHClient] = None
-        self._jump_clients: List[paramiko.SSHClient] = []
 
     # ------------------------------------------------------------ 生命周期
 
@@ -147,82 +135,30 @@ class SSHExecutor:
     def connect(self) -> "SSHExecutor":
         """建立连接(幂等,已连接则直接返回)。
 
-        无跳板时直连;有跳板时沿 ``via`` 链逐跳建立 ``direct-tcpip`` 隧道,
-        支持多层跳板链(``via`` 可嵌套)。
-
         Raises:
-            SSHConnectError: 直连或任一跳板环节失败。
+            SSHConnectError: 连接(或认证)失败。
         """
         if self.connected:
             return self
         try:
-            chain = self._hop_chain(self._target)
-            if len(chain) == 1:
-                self._client = self._open(self._target)
-                _logger.info("ssh connected %s@%s:%d",
-                             self._target.username, self._target.host, self._target.port)
-            else:
-                sock = self._build_tunnel(chain)
-                self._client = self._open(self._target, sock=sock)
-                hops = " -> ".join(f"{c.username}@{c.host}" for c in reversed(chain))
-                _logger.info("ssh tunneled through %d jump(s): %s",
-                             len(chain) - 1, hops)
+            self._client = self._open()
+            _logger.info("ssh connected %s@%s:%d",
+                         self._username, self._host, self._port)
         except Exception as exc:
             self.close()
             raise SSHConnectError(
-                f"cannot connect to {self._target.username}@{self._target.host}:"
-                f"{self._target.port}: {exc}"
+                f"cannot connect to {self._username}@{self._host}:{self._port}: {exc}"
             ) from exc
         return self
 
-    @staticmethod
-    def _hop_chain(target: SSHTarget) -> List[SSHTarget]:
-        """展开跳板链:[最终目标, 第一跳, ..., 最外层跳板]。
-
-        检测环(``via`` 回指已出现节点)避免无限递归。
-        """
-        chain: List[SSHTarget] = [target]
-        seen = {id(target)}
-        node = target.via
-        while node is not None:
-            if id(node) in seen:
-                raise SSHConnectError("cyclic jump chain detected")
-            seen.add(id(node))
-            chain.append(node)
-            node = node.via
-        return chain
-
-    def _build_tunnel(self, chain: List[SSHTarget]) -> Any:
-        """沿跳板链从最外层向内逐跳建立隧道,返回最终到目标的通道。
-
-        所有中间跳板 client 存入 ``self._jump_clients`` 以便关闭。调用方负责
-        把返回值作为 ``sock`` 传给 ``self._open(最终目标)``。
-        """
-        hops_inward = list(reversed(chain))  # [最外层, ..., 最终目标]
-        client = self._open(hops_inward[0])  # 真实连接最外层跳板
-        self._jump_clients.append(client)
-        transport = client.get_transport()
-        for nxt in hops_inward[1:-1]:  # 跳过最外层(已连)与最终目标(最后开通道)
-            chan = transport.open_channel(
-                "direct-tcpip", (nxt.host, nxt.port), ("127.0.0.1", 0)
-            )
-            client = self._open(nxt, sock=chan)  # 经通道连下一跳
-            self._jump_clients.append(client)
-            transport = client.get_transport()
-        return transport.open_channel(
-            "direct-tcpip", (chain[0].host, chain[0].port), ("127.0.0.1", 0)
-        )
-
     def close(self) -> None:
-        """关闭目标连接与所有跳板连接(幂等)。"""
-        for client in (*self._jump_clients, self._client):
-            if client is not None:
-                try:
-                    client.close()
-                except Exception:  # noqa: BLE001 - 关闭路径不抛
-                    pass
+        """关闭底层连接(幂等)。"""
+        if self._client is not None:
+            try:
+                self._client.close()
+            except Exception:  # noqa: BLE001 - 关闭路径不抛
+                pass
         self._client = None
-        self._jump_clients = []
 
     def __enter__(self) -> "SSHExecutor":
         return self.connect()
@@ -230,26 +166,26 @@ class SSHExecutor:
     def __exit__(self, *exc_info: Any) -> None:
         self.close()
 
-    def _open(self, target: SSHTarget, sock: Optional[Any] = None) -> paramiko.SSHClient:
+    def _open(self, sock: Optional[Any] = None) -> paramiko.SSHClient:
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         kwargs: Dict[str, Any] = dict(
-            hostname=target.host,
-            port=target.port,
-            username=target.username,
-            timeout=target.timeout,
-            banner_timeout=target.timeout,
-            auth_timeout=target.timeout,
+            hostname=self._host,
+            port=self._port,
+            username=self._username,
+            timeout=self._timeout,
+            banner_timeout=self._timeout,
+            auth_timeout=self._timeout,
             allow_agent=True,
             look_for_keys=False,
             sock=sock,
         )
-        if target.key_file:
-            kwargs["key_filename"] = target.key_file
-            if target.key_passphrase:
-                kwargs["passphrase"] = target.key_passphrase
-        elif target.password:
-            kwargs["password"] = target.password
+        if self._key_file:
+            kwargs["key_filename"] = self._key_file
+            if self._key_passphrase:
+                kwargs["passphrase"] = self._key_passphrase
+        elif self._password:
+            kwargs["password"] = self._password
             kwargs["look_for_keys"] = False
         client.connect(**kwargs)
         if self._keepalive > 0:
@@ -282,7 +218,7 @@ class SSHExecutor:
         Raises:
             SSHCommandError: ``check=True`` 且退出码非零。
             SSHTimeoutError: 超时。
-            SSHError: 未连接或通道打开失败。
+            TransportError: 未连接或通道打开失败。
         """
         if not self.connected:
             self.connect()
@@ -292,12 +228,12 @@ class SSHExecutor:
             exports = " ".join(f"{k}={shell_quote(str(v))}" for k, v in env.items())
             full_cmd = f"export {exports}; {command}"
         wrapped = "bash -lc " + shell_quote(full_cmd)
-        _logger.info("ssh run: %s", self._sanitizer.mask_text(wrapped))
+        _logger.info("ssh run: %s", self._sanitizer(wrapped))
         start = time.monotonic()
         try:
             stdin, stdout, stderr = self._client.exec_command(wrapped)
         except Exception as exc:
-            raise SSHError(f"failed to exec command on {self._target.host}: {exc}") from exc
+            raise TransportError(f"failed to exec command on {self._host}: {exc}") from exc
         channel = stdout.channel
         out_chunks: List[bytes] = []
         err_chunks: List[bytes] = []
@@ -312,7 +248,7 @@ class SSHExecutor:
             if deadline is not None and time.monotonic() > deadline:
                 channel.close()
                 raise SSHTimeoutError(
-                    f"command timed out after {timeout}s: {self._sanitizer.mask_text(command)}"
+                    f"command timed out after {timeout}s: {self._sanitizer(command)}"
                 )
             select.select([channel], [], [], 0.1)
         exit_code = channel.recv_exit_status()
@@ -323,7 +259,7 @@ class SSHExecutor:
             err_chunks.append(channel.recv_stderr(65536))
         duration = time.monotonic() - start
         result = CommandResult(
-            command=self._sanitizer.mask_text(command),
+            command=self._sanitizer(command),
             exit_code=exit_code,
             stdout=b"".join(out_chunks).decode(errors="replace"),
             stderr=b"".join(err_chunks).decode(errors="replace"),
@@ -371,7 +307,7 @@ class SSHExecutor:
         try:
             sftp.put(str(local), remote_path)
             _logger.info("sftp uploaded %s -> %s@%s:%s",
-                         local, self._target.username, self._target.host, remote_path)
+                         local, self._username, self._host, remote_path)
         except Exception as exc:
             raise SSHTransferError(f"upload {local} -> {remote_path} failed: {exc}") from exc
         finally:
@@ -406,7 +342,7 @@ class SSHExecutor:
         try:
             sftp.get(remote_path, str(local_path))
             _logger.info("sftp downloaded %s@%s:%s -> %s",
-                         self._target.username, self._target.host, remote_path, local_path)
+                         self._username, self._host, remote_path, local_path)
         except Exception as exc:
             raise SSHTransferError(f"download {remote_path} -> {local_path} failed: {exc}") from exc
         finally:
@@ -551,7 +487,7 @@ class SSHExecutor:
             '| cut -d= -f2 | tr -d \'"\' || uname -s)"'
         )
         result = self.run(script, check=True)
-        info: Dict[str, str] = {"host": self._target.host, "os": "unknown"}
+        info: Dict[str, str] = {"host": self._host, "os": "unknown"}
         for line in result.lines:
             if "=" in line:
                 key, _, value = line.partition("=")

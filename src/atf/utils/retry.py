@@ -39,7 +39,6 @@ class RetryPolicy:
         max_interval: 单次休眠的上限秒数。
         exceptions: 触发重试的异常类型。
         is_retryable: 结果级谓词,返回 True 表示该结果需要重试。
-        on_retry: 每次重试前的回调 ``(attempt, delay, reason)``,用于打点。
     """
 
     retries: int = 3
@@ -48,7 +47,6 @@ class RetryPolicy:
     max_interval: float = 30.0
     exceptions: tuple[Type[BaseException], ...] = (Exception,)
     is_retryable: Union[Callable[[object], bool], None] = None
-    on_retry: Union[Callable[[int, float, str], None], None] = field(default=None, repr=False)
 
     def execute(
         self,
@@ -83,7 +81,8 @@ class RetryPolicy:
                     _logger.error("'%s' failed after %d attempt(s): %s", what, attempt, exc)
                     raise
                 delay = self._delay(attempt)
-                self._notify(what, attempt, delay, f"{type(exc).__name__}: {exc}")
+                _logger.debug("'%s' attempt %d failed (%s), retry in %.2fs",
+                              what, attempt, f"{type(exc).__name__}: {exc}", delay)
                 time.sleep(delay)
                 continue
             if predicate is not None and predicate(result):
@@ -91,15 +90,11 @@ class RetryPolicy:
                     _logger.error("'%s' still unsatisfied after %d attempt(s)", what, attempt)
                     raise RetryExhaustedError(f"'{what}' exhausted after {attempt} attempt(s)")
                 delay = self._delay(attempt)
-                self._notify(what, attempt, delay, "result not satisfied")
+                _logger.debug("'%s' attempt %d unsatisfied, retry in %.2fs",
+                              what, attempt, delay)
                 time.sleep(delay)
                 continue
             return result
 
     def _delay(self, attempt: int) -> float:
         return min(self.interval * (self.backoff ** (attempt - 1)), self.max_interval)
-
-    def _notify(self, what: str, attempt: int, delay: float, reason: str) -> None:
-        _logger.debug("'%s' attempt %d failed (%s), retry in %.2fs", what, attempt, reason, delay)
-        if self.on_retry is not None:
-            self.on_retry(attempt, delay, reason)

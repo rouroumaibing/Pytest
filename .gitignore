@@ -1,0 +1,36 @@
+# --- Python 字节码 / 缓存 ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# --- 打包 / 构建产物 ---
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+
+# --- 虚拟环境(可再生:pip install -r requirements.txt) ---
+.venv/
+venv/
+env/
+
+# --- 测试 / 覆盖率缓存(可再生) ---
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+.cache/
+
+# --- 运行时状态 / 日志(可再生) ---
+.state/
+*.log
+
+# --- 编辑器 / 系统 ---
+.idea/
+.vscode/
+.DS_Store

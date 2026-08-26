@@ -2,12 +2,7 @@
 
 from atf.http.auth import ApiKeyAuth, AuthStrategy, CookieAuth, CustomAuth, TokenAuth
 from atf.http.client import BaseClient
-from atf.http.exceptions import (
-    ApiError,
-    ApiHTTPStatusError,
-    ApiTimeoutError,
-    ApiTransportError,
-)
+from atf.exceptions import HTTPStatusError, TransportError
 
 __all__ = [
     "BaseClient",
@@ -16,8 +11,6 @@ __all__ = [
     "CookieAuth",
     "ApiKeyAuth",
     "CustomAuth",
-    "ApiError",
-    "ApiTransportError",
-    "ApiTimeoutError",
-    "ApiHTTPStatusError",
+    "TransportError",
+    "HTTPStatusError",
 ]

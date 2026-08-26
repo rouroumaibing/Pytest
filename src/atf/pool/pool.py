@@ -6,37 +6,33 @@ License、容器……)"的场景,提供:
 - **持久化**:状态落在单个 YAML 文件,进程崩溃不丢;
 - **跨进程互斥**:所有读写都在 ``filelock.FileLock`` 临界区内完成,
   读-改-写是原子的;
-- **任意条件过滤**:``query`` 做子集匹配(适合配置驱动),
+- **任意条件过滤**:``**filters`` 关键字做子集匹配(适合配置驱动),
   ``filter`` 传任意谓词函数(适合复杂条件),可叠加;
 - **重试等待**:资源被占满时按 ``retries`` + ``interval`` 轮询,
   而不是立刻失败;
 - **批量分配**:``acquire_batch`` 在同一临界区内一次性分配 N 个,
-  不会出现"两个 worker 各拿到半批"的交错;
-- **僵尸接管**:某资源被占用超过 ``stale_timeout``(典型:持有者崩溃
-  后来不及 release),下一个 acquire 会强制回收再分配。
+  不会出现"两个 worker 各拿到半批"的交错。
 
 记录结构(每条资源,业务字段平铺在保留字段之外)::
 
     id: host-01            # 唯一标识(池内分配或用户指定)
     state: free            # free | busy | disabled
     owner: null            # 当前持有者标识(acquire 时可传 worker id)
-    locked_at: "..."       # ISO8601,用于僵尸检测
+    locked_at: "..."       # ISO8601,记录最近一次分配时间
     host: 10.0.0.11        # ↓ 以下均为任意业务字段,过滤条件作用于整条记录
     role: storage
     tags: [ssd, 10g]
 
 .. note::
-    僵尸回收是**默认开启**的保守行为(``stale_timeout`` 默认 1800s):
-    持有者进程崩溃、来不及 ``release`` 时,下一个 ``acquire`` 会强制回收
-    再分配。这对"创建成本高、不可幂等"的资源(如申请到的 License、临时实例)
-    有风险——被误回收后,若原持有者恢复会凭空多占一份。若资源昂贵或不幂等,
-    请显式调大 ``stale_timeout``(例如数小时),或将该资源置为 ``disabled``
-    由运维人工摘取。该默认并非提示词强制要求,而是为通用场景选的安全值。
-
-.. note::
     跨进程互斥依赖 ``filelock`` 的 POSIX ``fcntl`` 锁,**仅在同机、同一
     文件系统**上保证互斥。跨主机、NFS/网络盘、容器内外的锁不保证生效;
     多机并发请改用中心化锁(数据库 / Redis / 分布式锁服务)。
+
+.. note::
+    资源一旦被 ``acquire`` 标记为 busy,会一直保持直到显式 ``release``
+    (或 ``release_all``)。若持有者进程崩溃来不及归还,资源会停留在 busy;
+    清理交由 ``release_all`` / 运维置 ``disabled`` 处理,框架不做隐式
+    僵尸回收,避免误回收昂贵或不幂等资源。
 """
 
 from __future__ import annotations
@@ -91,18 +87,15 @@ class ResourcePool:
         self,
         path: Union[str, Path],
         *,
-        stale_timeout: float = 1800.0,
         lock_timeout: float = 30.0,
     ) -> None:
         """打开(或延迟创建)一个资源池。
 
         Args:
             path: YAML 池文件路径;不存在时视为空池,首次写入时创建。
-            stale_timeout: 资源被占用超过该秒数视为僵尸,可被强制回收。
             lock_timeout: 获取文件锁的超时秒数(超时抛 :class:`ResourcePoolError`)。
         """
         self._path = Path(path)
-        self._stale_timeout = stale_timeout
         self._lock_timeout = lock_timeout
         self._lock = FileLock(str(self._path) + ".lock")
 
@@ -237,20 +230,20 @@ class ResourcePool:
     def acquire(
         self,
         *,
-        query: Optional[Dict[str, Any]] = None,
-        filter: Optional[Predicate] = None,
         owner: Optional[str] = None,
         retries: int = 0,
         interval: float = 1.0,
+        filter: Optional[Predicate] = None,
+        **filters: Any,
     ) -> Dict[str, Any]:
         """获取一个满足条件的空闲资源,并将其标记为 busy。
 
         Args:
-            query: 子集匹配条件(作用于 ``data`` 字段)。
-            filter: 任意谓词(作用于整条记录),与 ``query`` 叠加(AND)。
             owner: 持有者标识;缺省 ``主机名:进程号``。release 时校验。
             retries: 池中暂时无可用资源时的额外尝试次数(0=只试一次)。
             interval: 重试间隔秒数。
+            filter: 任意谓词(作用于整条记录),与关键字过滤叠加(AND)。
+            **filters: 子集匹配关键字(如 ``role="compute"``),作用于资源业务字段。
 
         Returns:
             分配到的资源记录(含 id/data,owner 已置为本次持有者)。
@@ -262,7 +255,7 @@ class ResourcePool:
         policy = RetryPolicy(retries=retries, interval=interval, exceptions=(ResourcePoolError,))
         try:
             return policy.execute(
-                lambda: self._try_acquire(query, filter, holder),
+                lambda: self._try_acquire(filters, filter, holder),
                 description=f"pool.acquire({self._path.name})",
                 is_retryable=lambda r: r is None,
             )
@@ -276,11 +269,11 @@ class ResourcePool:
         self,
         count: int,
         *,
-        query: Optional[Dict[str, Any]] = None,
-        filter: Optional[Predicate] = None,
         owner: Optional[str] = None,
         retries: int = 0,
         interval: float = 1.0,
+        filter: Optional[Predicate] = None,
+        **filters: Any,
     ) -> List[Dict[str, Any]]:
         """批量获取 ``count`` 个满足条件的空闲资源。
 
@@ -296,7 +289,7 @@ class ResourcePool:
         policy = RetryPolicy(retries=retries, interval=interval, exceptions=(ResourcePoolError,))
         try:
             return policy.execute(
-                lambda: self._try_acquire_batch(count, query, filter, holder),
+                lambda: self._try_acquire_batch(count, filters, filter, holder),
                 description=f"pool.acquire_batch({self._path.name}, n={count})",
                 is_retryable=lambda r: r is None,
             )
@@ -365,7 +358,6 @@ class ResourcePool:
     ) -> Optional[Dict[str, Any]]:
         with self._critical():
             records = self._load()
-            self._reap_stale(records)
             for record in records:
                 if record.get("state") != ResourceState.FREE.value:
                     continue
@@ -386,7 +378,6 @@ class ResourcePool:
     ) -> Optional[List[Dict[str, Any]]]:
         with self._critical():
             records = self._load()
-            self._reap_stale(records)
             picked = [
                 r for r in records
                 if r.get("state") == ResourceState.FREE.value and self._match(r, query, filter)
@@ -398,24 +389,6 @@ class ResourcePool:
             self._save(records)
             _logger.info("batch acquired %d resource(s) (owner=%s)", count, owner)
             return [copy_record(r) for r in picked[:count]]
-
-    def _reap_stale(self, records: List[Dict[str, Any]]) -> None:
-        """就地回收被占用超过 stale_timeout 的僵尸资源(须在临界区内调用)。"""
-        now = _dt.datetime.now(_dt.timezone.utc)
-        for record in records:
-            if record.get("state") != ResourceState.BUSY.value:
-                continue
-            locked_at = _parse_ts(record.get("locked_at"))
-            if locked_at is None:
-                continue
-            if (now - locked_at).total_seconds() > self._stale_timeout:
-                _logger.warning(
-                    "reaping stale resource %s (owner=%s, locked_at=%s)",
-                    record.get("id"), record.get("owner"), record.get("locked_at"),
-                )
-                record["state"] = ResourceState.FREE.value
-                record["owner"] = None
-                record["locked_at"] = None
 
     @staticmethod
     def _mark(record: Dict[str, Any], owner: str) -> None:
@@ -495,12 +468,3 @@ def _subset_match(query: Dict[str, Any], record: Dict[str, Any]) -> bool:
 
 def _utcnow_iso() -> str:
     return _dt.datetime.now(_dt.timezone.utc).isoformat()
-
-
-def _parse_ts(value: Any) -> Optional[_dt.datetime]:
-    if not value:
-        return None
-    try:
-        return _dt.datetime.fromisoformat(str(value))
-    except ValueError:
-        return None

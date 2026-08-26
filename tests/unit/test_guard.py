@@ -93,16 +93,16 @@ class TestShared:
 
 
 class TestTakeover:
-    def test_takeover_when_creator_pid_dead(self, tmp_path):
+    def test_takeover_when_creator_stale(self, tmp_path):
         state = tmp_path / "guard.json"
-        # 写入一个“创建者已死”的僵尸条目
+        # 写入一个“创建者停滞超时”的僵尸条目(时间维度接管,不依赖 PID)
         state.write_text(json.dumps({"version": 1, "fixtures": {"fx": {
             "state": "creating", "owner": "ghost", "pid": 2_000_000_000,
-            "host": socket.gethostname(), "created_at": time.time(),
-            "value": None, "holders": [],
+            "host": socket.gethostname(), "created_at": time.time() - 100,
+            "value": None, "refcount": 0,
         }}}), encoding="utf-8")
         g = SharedFixtureGuard(state, lock_timeout=5, wait_ready_timeout=5,
-                               takeover_after=60, poll_interval=0.02)
+                               takeover_after=0.05, poll_interval=0.02)
         with g.shared("fx", lambda: "reborn", owner="w0") as fx:
             assert fx.role == "creator"
             assert fx.value == "reborn"
@@ -112,23 +112,20 @@ class TestTakeover:
         state.write_text(json.dumps({"version": 1, "fixtures": {"fx": {
             "state": "creating", "owner": "ghost", "pid": 2_000_000_000,
             "host": socket.gethostname(),
-            "created_at": time.time() - 100, "value": None, "holders": [],
+            "created_at": time.time() - 100, "value": None, "refcount": 0,
         }}}), encoding="utf-8")
         g = SharedFixtureGuard(state, lock_timeout=5, wait_ready_timeout=5,
                                takeover_after=0.05, poll_interval=0.02)
         with g.shared("fx", lambda: "fresh", owner="w0") as fx:
             assert fx.value == "fresh"
 
-    def test_ready_with_dead_holders_is_recycled(self, tmp_path):
-        """ready 但持有者全部死亡:条目被回收并重建,而不是沿用可疑旧值。"""
+    def test_ready_with_zero_refcount_is_recycled(self, tmp_path):
+        """ready 但引用计数为 0(无活跃持有者):条目被回收并重建。"""
         state = tmp_path / "guard.json"
         state.write_text(json.dumps({"version": 1, "fixtures": {"fx": {
             "state": "ready", "owner": "ghost", "pid": 2_000_000_000,
             "host": socket.gethostname(), "created_at": time.time() - 10,
-            "value": {"v": 7}, "holders": [
-                {"owner": "ghost", "pid": 2_000_000_000,
-                 "host": socket.gethostname(), "at": time.time()},
-            ],
+            "value": {"v": 7}, "refcount": 0,
         }}}), encoding="utf-8")
         g = SharedFixtureGuard(state, lock_timeout=5, poll_interval=0.02)
         with g.shared("fx", lambda: "new", owner="w0") as fx:
@@ -142,7 +139,7 @@ class TestTakeover:
             state.write_text(json.dumps({"version": 1, "fixtures": {"fx": {
                 "state": "creating", "owner": "other", "pid": live_pid,
                 "host": socket.gethostname(), "created_at": time.time(),
-                "value": None, "holders": [],
+                "value": None, "refcount": 0,
             }}}), encoding="utf-8")
             g = SharedFixtureGuard(state, lock_timeout=5, wait_ready_timeout=0.3,
                                    takeover_after=60, poll_interval=0.05)
@@ -237,40 +234,17 @@ class TestConcurrentProcesses:
         assert not (tmp_path / "guard.json").exists()  # 全部退出后条目清理
 
 
-class TestHeartbeat:
-    def test_heartbeat_keeps_long_held_fixture_alive(self, tmp_path):
-        """长持有(远超 holder_stale_after)且开启心跳时,应被续租而非误回收。"""
-        g = SharedFixtureGuard(
-            tmp_path / "hb.json", lock_timeout=5,
-            holder_stale_after=0.2, poll_interval=0.02,
-        )
-        created: list = []
-
-        def create():
-            created.append(1)
-            return {"v": 1}
-
-        with g.shared("fx", create, owner="w0"):
-            time.sleep(0.6)  # 远超 holder_stale_after(0.2)
-            # 第二个持有者进入:心跳应保住 w0,使其被复用而非重建
-            with g.shared("fx", create, owner="w1") as fx2:
-                assert fx2.role == "user"
-        assert created.count(1) == 1  # create 仅执行一次
-
-    def test_no_heartbeat_allows_stale_pruning(self, tmp_path):
-        """关闭心跳且持有远超 stale 时,持有者被判定失效并触发重建。"""
-        g = SharedFixtureGuard(
-            tmp_path / "hb2.json", lock_timeout=5,
-            holder_stale_after=0.15, poll_interval=0.02,
-        )
-        created: list = []
-
-        def create():
-            created.append(1)
-            return {"v": 1}
-
-        with g.shared("fx", create, owner="w0", heartbeat=False):
-            time.sleep(0.5)  # 远超 stale,且无心跳
-            with g.shared("fx", create, owner="w1") as fx2:
-                assert fx2.role == "creator"  # w0 被判定失效,重建
-        assert created.count(1) == 2  # 重建导致 create 再跑一次
+class TestRefCount:
+    def test_refcount_increments_on_enter_and_decrements_on_exit(self, tmp_path):
+        """多持有者进出应正确增减引用计数,归零才清理。"""
+        state = tmp_path / "guard.json"
+        g = SharedFixtureGuard(state, lock_timeout=5, poll_interval=0.02)
+        with g.shared("fx", lambda: {"v": 1}, owner="w0") as a:
+            assert a.role == "creator"
+            with g.shared("fx", lambda: {"v": 1}, owner="w1") as b:
+                assert b.role == "user"
+                assert g.entries()["fx"]["refcount"] == 2
+            # w1 退出:refcount 回到 1,条目仍在
+            assert g.entries()["fx"]["refcount"] == 1
+        # w0 退出:refcount 归零,条目删除
+        assert "fx" not in g.entries()

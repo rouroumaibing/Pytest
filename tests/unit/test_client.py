@@ -9,12 +9,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 import requests
 
-from atf.exceptions import ApiError
+from atf.exceptions import ATFError, HTTPStatusError, TransportError
 from atf.http import (
-    ApiHTTPStatusError,
     ApiKeyAuth,
-    ApiTimeoutError,
-    ApiTransportError,
     BaseClient,
     CookieAuth,
     TokenAuth,
@@ -124,7 +121,7 @@ class TestRequests:
 
 class TestErrors:
     def test_status_error_raised(self, client):
-        with pytest.raises(ApiHTTPStatusError) as ei:
+        with pytest.raises(HTTPStatusError) as ei:
             client.get("/status500")
         assert ei.value.response.status_code == 500
 
@@ -134,32 +131,42 @@ class TestErrors:
 
     def test_transport_error_wrapped(self):
         bad = BaseClient("http://127.0.0.1:1", retry=RetryPolicy(retries=1, interval=0.05))
-        with pytest.raises(ApiTransportError):
+        with pytest.raises(TransportError):
             bad.get("/x")
         bad.close()
 
     def test_timeout_wrapped(self, server):
         slow = BaseClient(server, auth=TokenAuth("good-token"),
                           timeout=0.2, retry=RetryPolicy(retries=0))
-        with pytest.raises(ApiTimeoutError):
+        with pytest.raises(TransportError):
             slow.get("/slow")
         slow.close()
 
     def test_exceptions_share_atf_base(self):
-        assert issubclass(ApiHTTPStatusError, ApiError)
-        assert issubclass(ApiTransportError, ApiError)
-        assert issubclass(ApiTimeoutError, ApiError)
+        assert issubclass(HTTPStatusError, ATFError)
+        assert issubclass(TransportError, ATFError)
 
 
 class TestRetry:
-    def test_retry_on_503_then_success(self, client):
-        resp = client.get("/flaky")
-        assert resp.status_code == 200
-        assert resp.json()["attempt"] == 3  # 2 次 503 均被重试
+    def test_status_codes_not_retried(self, client):
+        # 删除 RETRYABLE_STATUS 后,HTTP 状态码不再触发重试;
+        # /flaky 首个请求返回 503,应直接以 HTTPStatusError 暴露,而非重试到 200
+        with pytest.raises(HTTPStatusError) as ei:
+            client.get("/flaky")
+        assert ei.value.response.status_code == 503
 
-    def test_non_retryable_status_not_retried(self, client):
+    def test_non_retryable_status_returned_when_disabled(self, client):
         resp = client.request("GET", "/status404", raise_for_status=False)
         assert resp.status_code == 404  # 直接返回,无重试开销
+
+    def test_network_failure_retries_then_raises(self):
+        # 仅网络层异常仍按 RetryPolicy 重试,耗尽后抛 TransportError
+        bad = BaseClient(
+            "http://127.0.0.1:1", retry=RetryPolicy(retries=2, interval=0.05)
+        )
+        with pytest.raises(TransportError):
+            bad.get("/x")
+        bad.close()
 
 
 class TestAuthRefresh:
@@ -176,7 +183,7 @@ class TestAuthRefresh:
 
     def test_401_without_refresh_raises(self, server):
         with BaseClient(server, auth=TokenAuth("stale-token")) as client:
-            with pytest.raises(ApiHTTPStatusError) as ei:
+            with pytest.raises(HTTPStatusError) as ei:
                 client.get("/echo")
             assert ei.value.response.status_code == 401
 

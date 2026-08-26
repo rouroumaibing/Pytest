@@ -4,9 +4,25 @@
 fixture 互斥、测试上下文)均可独立使用,不依赖被测系统细节。
 """
 
-from atf.exceptions import ATFError
 from atf.context import TestContext
+from atf.exceptions import (
+    ATFError,
+    ConfigError,
+    FixtureGuardError,
+    HTTPStatusError,
+    ResourcePoolError,
+    TransportError,
+)
 
 __version__ = "0.1.0"
 
-__all__ = ["ATFError", "TestContext", "__version__"]
+__all__ = [
+    "ATFError",
+    "TestContext",
+    "__version__",
+    "TransportError",
+    "HTTPStatusError",
+    "ConfigError",
+    "FixtureGuardError",
+    "ResourcePoolError",
+]

@@ -5,8 +5,9 @@
 - **可插拔认证**:任意 :class:`~atf.http.auth.AuthStrategy`(Token /
   Cookie / ApiKey / 自定义函数 / 继承扩展),401 时自动 ``refresh`` 并重试一次;
 - **extra_header**:实例级全局附加头 + 单请求级覆盖头;
-- **重试**:网络异常与 429/502/503/504 按 :class:`~atf.utils.retry.RetryPolicy`
-  重试(默认 2 次指数退避);
+- **重试**:仅网络层异常(超时 / 连接失败,封装为
+  :class:`~atf.exceptions.TransportError`)按 :class:`~atf.utils.retry.RetryPolicy`
+  重试(默认 2 次指数退避);HTTP 状态码不触发重试,交由 ``raise_for_status``;
 - **摘要日志**:每次请求一行摘要(方法、URL、状态码、耗时、截断的
   请求/响应体),敏感字段脱敏后落盘;
 - **统一异常**:对外只抛 ``atf.http.exceptions`` 体系,携带原始异常或响应。
@@ -20,17 +21,15 @@ from typing import Any, Callable, Mapping, Optional, TypeVar, Union
 
 import requests
 
+from atf.exceptions import HTTPStatusError, TransportError
 from atf.http.auth import AuthStrategy
-from atf.http.exceptions import ApiHTTPStatusError, ApiTransportError, wrap_requests_error
+from atf.http.exceptions import wrap_requests_error
 from atf.utils.log import get_logger
 from atf.utils.retry import RetryPolicy
-from atf.utils.sanitizer import DEFAULT_SANITIZER, Sanitizer
+from atf.utils.sanitizer import DEFAULT_SANITIZER
 
 T = TypeVar("T")
 _logger = get_logger("atf.http")
-
-#: 触发状态码级重试的 HTTP 状态(网关抖动与限流)
-RETRYABLE_STATUS = frozenset({408, 425, 429, 502, 503, 504})
 
 _METHODS = ("get", "post", "put", "patch", "delete", "head", "options")
 
@@ -48,7 +47,7 @@ class BaseClient:
         retry: Optional[RetryPolicy] = None,
         verify: Union[bool, str] = True,
         session: Optional[requests.Session] = None,
-        sanitizer: Optional[Sanitizer] = None,
+        sanitizer: Optional[Callable[[str], str]] = None,
         log_body_bytes: int = 512,
     ) -> None:
         """初始化客户端。
@@ -69,7 +68,7 @@ class BaseClient:
         self._timeout = timeout
         self._retry = retry if retry is not None else RetryPolicy(
             retries=2, interval=0.5, backoff=2.0,
-            exceptions=(ApiTransportError,),
+            exceptions=(TransportError,),
         )
         self._sanitizer = sanitizer or DEFAULT_SANITIZER
         self._log_body_bytes = log_body_bytes
@@ -107,7 +106,7 @@ class BaseClient:
             headers: 单请求附加头(与全局 extra_headers 合并,优先级更高)。
             timeout: 本请求超时,覆盖实例默认值。
             retry: 本请求重试策略,覆盖实例默认值。
-            raise_for_status: 是否对非 2xx 抛 :class:`ApiHTTPStatusError`,
+            raise_for_status: 是否对非 2xx 抛 :class:`~atf.exceptions.HTTPStatusError`,
                 覆盖实例默认(默认开启;断言错误码的负向用例可关掉)。
             **kwargs: 透传给 ``requests.Session.request``。
 
@@ -115,8 +114,8 @@ class BaseClient:
             :class:`requests.Response`。
 
         Raises:
-            ApiTransportError / ApiTimeoutError: 网络层失败(重试耗尽后)。
-            ApiHTTPStatusError: ``raise_for_status`` 且状态码非 2xx。
+            TransportError: 网络层失败(重试耗尽后)。
+            HTTPStatusError: ``raise_for_status`` 且状态码非 2xx。
         """
         url = path if path.startswith(("http://", "https://")) else f"{self._base_url}/{path.lstrip('/')}"
         policy = retry if retry is not None else self._retry
@@ -153,30 +152,12 @@ class BaseClient:
         send: Callable[[], requests.Response],
         policy: RetryPolicy,
     ) -> requests.Response:
-        """按策略执行发送:网络异常与可重试状态码都触发重试。"""
+        """按策略执行发送:仅网络层异常(TransportError)触发重试。
 
-        def attempt() -> requests.Response:
-            response = send()
-            if response.status_code in RETRYABLE_STATUS:
-                # 让 RetryPolicy 的结果谓词接手“状态码重试”
-                response.raise_for_status()
-            return response
-
-        inner = RetryPolicy(
-            retries=policy.retries,
-            interval=policy.interval,
-            backoff=policy.backoff,
-            max_interval=policy.max_interval,
-            exceptions=policy.exceptions + (requests.HTTPError,),
-        )
-        try:
-            return inner.execute(attempt, description=f"{self._base_url}")
-        except requests.HTTPError as exc:
-            response = exc.response
-            if response is not None and response.status_code in RETRYABLE_STATUS:
-                # 可重试状态耗尽:返回响应交由 raise_for_status 逻辑处理
-                return response
-            raise
+        HTTP 状态码不在这里重试 —— 非 2xx 由 :meth:`_raise_for_status`
+        在调用方统一处理,避免把 4xx/5xx 误判为可重试瞬态。
+        """
+        return policy.execute(send, description=self._base_url)
 
     def _apply_auth(self) -> None:
         if self._auth is not None:
@@ -187,7 +168,7 @@ class BaseClient:
         try:
             response.raise_for_status()
         except requests.HTTPError as exc:
-            raise ApiHTTPStatusError(response) from exc
+            raise HTTPStatusError(response) from exc
 
     # ------------------------------------------------------------- 日志
 
@@ -211,8 +192,8 @@ class BaseClient:
         line = (
             f"{method.upper()} {sanitized_url(url, self._sanitizer)} -> "
             f"{response.status_code} ({duration_ms:.0f}ms) "
-            f"req={_truncate(self._sanitizer.mask_text(req_text), self._log_body_bytes)} "
-            f"resp={_truncate(self._sanitizer.mask_text(resp_text), self._log_body_bytes)}"
+            f"req={_truncate(self._sanitizer(req_text), self._log_body_bytes)} "
+            f"resp={_truncate(self._sanitizer(resp_text), self._log_body_bytes)}"
         )
         _logger.info(line)
 
@@ -257,10 +238,10 @@ def _truncate(text: str, limit: int) -> str:
     return text[:limit] + f"...({len(text)}B)"
 
 
-def sanitized_url(url: str, sanitizer: Sanitizer) -> str:
+def sanitized_url(url: str, sanitizer: Callable[[str], str]) -> str:
     """遮蔽 URL query 中的敏感参数(如 ?token=xxx / ?sign=yyy)。"""
     if "?" not in url:
         return url
     base, _, query = url.partition("?")
-    masked = sanitizer.mask_text(query.replace("&", " ").replace("=", "="))
+    masked = sanitizer(query.replace("&", " ").replace("=", "="))
     return f"{base}?{masked.replace(' ', '&')}"

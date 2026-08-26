@@ -43,11 +43,11 @@ class TestCleanup:
         ctx.add_finalizer(lambda: order.append("a"))
         ctx.add_finalizer(lambda: (_ for _ in ()).throw(RuntimeError("boom")))
         ctx.add_finalizer(lambda: order.append("c"))
-        report = ctx.cleanup()
+        executed, failures = ctx.cleanup()
         assert order == ["c", "a"]  # b 失败但 a 仍执行
-        assert not report.ok
-        assert len(report.failures) == 1
-        assert "boom" in report.failures[0][1]
+        assert failures
+        assert len(failures) == 1
+        assert "boom" in failures[0][1]
 
     def test_cleanup_idempotent(self):
         calls = []
@@ -75,9 +75,9 @@ class TestCleanup:
     def test_register_without_finalizer_and_no_close_is_noop(self):
         ctx = TestContext("t")
         ctx.register({"plain": "dict"})
-        report = ctx.cleanup()
-        assert report.ok
-        assert any("noop" in d for d in report.executed)
+        executed, failures = ctx.cleanup()
+        assert not failures
+        assert any("noop" in d for d in executed)
 
 
 class TestProtocol:
@@ -87,7 +87,6 @@ class TestProtocol:
             ctx.add_finalizer(lambda: order.append("x"))
             assert ctx.pending == 1
         assert order == ["x"]
-        assert ctx.report is not None and ctx.report.ok
 
     def test_cleanup_runs_even_on_exception(self):
         order = []

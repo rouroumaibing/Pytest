@@ -22,13 +22,13 @@ from atf.exceptions import (
     ResourceNotFoundError,
     ResourceStateError,
 )
-from atf.resources import ResourcePool
+from atf.pool import ResourcePool
 
 
 @pytest.fixture
 def pool(tmp_path):
     """三台机器的临时资源池。"""
-    p = ResourcePool(tmp_path / "pool.yaml", stale_timeout=3600, lock_timeout=5)
+    p = ResourcePool(tmp_path / "pool.yaml", lock_timeout=5)
     p.add({"host": "10.0.0.1", "role": "storage", "tags": ["ssd"]}, resource_id="node-1")
     p.add({"host": "10.0.0.2", "role": "compute", "tags": ["gpu"]}, resource_id="node-2")
     p.add({"host": "10.0.0.3", "role": "compute", "tags": ["gpu", "25g"]}, resource_id="node-3")
@@ -55,20 +55,20 @@ class TestBasic:
 
     def test_stats(self, pool):
         assert pool.stats() == {"free": 3, "busy": 0, "disabled": 0}
-        pool.acquire(query={"role": "storage"})
+        pool.acquire(role="storage")
         assert pool.stats()["busy"] == 1
 
     def test_disable_prevents_allocation(self, pool):
         pool.set_enabled("node-2", False)
-        got = pool.acquire(query={"role": "compute"})
+        got = pool.acquire(role="compute")
         assert got["id"] == "node-3"
         with pytest.raises(ResourceExhaustedError):
-            pool.acquire(query={"role": "compute"}, retries=0)
+            pool.acquire(role="compute", retries=0)
 
 
 class TestAcquire:
     def test_acquire_by_query(self, pool):
-        got = pool.acquire(query={"role": "compute"}, owner="w0")
+        got = pool.acquire(role="compute", owner="w0")
         assert got["role"] == "compute"
         assert got["owner"] == "w0"
         assert got["state"] == "busy"
@@ -78,58 +78,58 @@ class TestAcquire:
         assert got["id"] == "node-3"
 
     def test_acquire_query_and_filter_combined(self, pool):
-        pool.acquire(query={"role": "compute"}, owner="w0")  # 先占一台
+        pool.acquire(role="compute", owner="w0")  # 先占一台
         got = pool.acquire(
-            query={"role": "compute"}, filter=lambda r: r["id"] != "node-2", owner="w1"
+            role="compute", filter=lambda r: r["id"] != "node-2", owner="w1"
         )
         assert got["id"] == "node-3"
 
     def test_acquire_exhaustion(self, pool):
-        pool.acquire(query={"role": "compute"}, owner="w0")
-        pool.acquire(query={"role": "compute"}, owner="w1")
+        pool.acquire(role="compute", owner="w0")
+        pool.acquire(role="compute", owner="w1")
         with pytest.raises(ResourceExhaustedError):
-            pool.acquire(query={"role": "compute"}, retries=1, interval=0.05)
+            pool.acquire(role="compute", retries=1, interval=0.05)
 
     def test_acquire_retries_until_released(self, pool, tmp_path):
-        pool.acquire(query={"role": "compute"}, owner="w0")
-        pool.acquire(query={"role": "compute"}, owner="w1")
+        pool.acquire(role="compute", owner="w0")
+        pool.acquire(role="compute", owner="w1")
         # 另一个持有者在重试窗口内归还一台(独立实例 → 独立 flock,真互斥)
         def releaser():
-            other = ResourcePool(tmp_path / "pool.yaml", stale_timeout=3600, lock_timeout=5)
+            other = ResourcePool(tmp_path / "pool.yaml", lock_timeout=5)
             other.release("node-2", owner="w0")
 
         timer = threading.Timer(0.15, releaser)
         timer.start()
-        got = pool.acquire(query={"role": "compute"}, retries=10, interval=0.1)
+        got = pool.acquire(role="compute", retries=10, interval=0.1)
         timer.join()
         assert got["id"] == "node-2"
 
     def test_release_owner_mismatch(self, pool):
-        pool.acquire(query={"role": "storage"}, owner="w0")
+        pool.acquire(role="storage", owner="w0")
         with pytest.raises(ResourceStateError):
             pool.release("node-1", owner="someone-else")
 
     def test_release_all_for_owner(self, pool):
-        pool.acquire(query={"role": "compute"}, owner="w0")
-        pool.acquire(query={"role": "storage"}, owner="w0")
+        pool.acquire(role="compute", owner="w0")
+        pool.acquire(role="storage", owner="w0")
         assert pool.release_all(owner="w0") == ["node-1", "node-2"]
         assert pool.stats() == {"free": 3, "busy": 0, "disabled": 0}
 
     def test_records_are_copies(self, pool):
-        got = pool.acquire(query={"role": "storage"}, owner="w0")
+        got = pool.acquire(role="storage", owner="w0")
         got["host"] = "tampered"
         assert pool.get("node-1")["host"] == "10.0.0.1"
 
 
 class TestBatch:
     def test_batch_ok(self, pool):
-        got = pool.acquire_batch(2, query={"role": "compute"}, owner="w0")
+        got = pool.acquire_batch(2, role="compute", owner="w0")
         assert len(got) == 2
         assert {r["id"] for r in got} == {"node-2", "node-3"}
 
     def test_batch_not_enough_is_atomic(self, pool):
         with pytest.raises(ResourceExhaustedError):
-            pool.acquire_batch(3, query={"role": "compute"}, retries=1, interval=0.05)
+            pool.acquire_batch(3, role="compute", retries=1, interval=0.05)
         assert pool.stats()["busy"] == 0  # 一个都没占用
 
     def test_batch_invalid_count(self, pool):
@@ -137,31 +137,13 @@ class TestBatch:
             pool.acquire_batch(0)
 
 
-class TestStale:
-    def test_stale_resource_is_reaped(self, pool, tmp_path):
-        pool.acquire(query={"role": "storage"}, owner="crashed-worker")
-        # 模拟持有者崩溃未归还:把 locked_at 改到很久以前
-        data = yaml.safe_load((tmp_path / "pool.yaml").read_text())
-        data["resources"][0]["locked_at"] = "2020-01-01T00:00:00+00:00"
-        (tmp_path / "pool.yaml").write_text(yaml.safe_dump(data))
-        stale_pool = ResourcePool(tmp_path / "pool.yaml", stale_timeout=1.0, lock_timeout=5)
-        got = stale_pool.acquire(query={"role": "storage"}, owner="w1")
-        assert got["id"] == "node-1"
-        assert got["owner"] == "w1"
-
-    def test_fresh_busy_not_reaped(self, pool):
-        pool.acquire(query={"role": "storage"}, owner="w0")
-        with pytest.raises(ResourceExhaustedError):
-            pool.acquire(query={"role": "storage"}, retries=0)
-
-
 _ACQUIRE_SNIPPET = textwrap.dedent(
     """
     import sys
-    from atf.resources import ResourcePool
-    pool = ResourcePool(sys.argv[1], stale_timeout=3600, lock_timeout=10)
+    from atf.pool import ResourcePool
+    pool = ResourcePool(sys.argv[1], lock_timeout=10)
     try:
-        rec = pool.acquire(query={"role": "compute"}, owner=sys.argv[2], retries=0)
+        rec = pool.acquire(role="compute", owner=sys.argv[2], retries=0)
         print("OK", rec["id"])
     except Exception as exc:
         print("FAIL", type(exc).__name__)
@@ -173,7 +155,7 @@ class TestCrossProcess:
     def test_two_processes_cannot_take_same_resource(self, tmp_path):
         """两个进程争抢唯一资源:恰好一个成功,另一个耗尽失败。"""
         pool_file = tmp_path / "mp_pool.yaml"
-        ResourcePool(pool_file, stale_timeout=3600, lock_timeout=10).add(
+        ResourcePool(pool_file, lock_timeout=10).add(
             {"host": "10.9.9.9", "role": "compute"}, resource_id="solo"
         )
         procs = [
@@ -190,13 +172,13 @@ class TestCrossProcess:
 
     def test_persistence_across_instances(self, tmp_path):
         """YAML 持久化:另一个进程/实例看到一致的占用状态。"""
-        first = ResourcePool(tmp_path / "pp.yaml", stale_timeout=3600)
+        first = ResourcePool(tmp_path / "pp.yaml")
         first.add({"host": "1.1.1.1", "role": "db"}, resource_id="db-1")
-        first.acquire(query={"role": "db"}, owner="w0")
-        second = ResourcePool(tmp_path / "pp.yaml", stale_timeout=3600)
+        first.acquire(role="db", owner="w0")
+        second = ResourcePool(tmp_path / "pp.yaml")
         assert second.stats() == {"free": 0, "busy": 1, "disabled": 0}
         with pytest.raises(ResourceExhaustedError):
-            second.acquire(query={"role": "db"}, retries=0)
+            second.acquire(role="db", retries=0)
 
 
 class TestFindPagination:

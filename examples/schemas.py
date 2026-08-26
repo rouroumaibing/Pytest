@@ -36,18 +36,8 @@ class HttpConfig(BaseModel):
     auth: AuthConfig = Field(default_factory=AuthConfig)
 
 
-class SSHJumpConfig(BaseModel):
-    """SSH 跳板机配置。"""
-
-    host: str
-    port: int = 22
-    username: str = "root"
-    password: Optional[str] = None
-    key_file: Optional[str] = None
-
-
 class SSHConfig(BaseModel):
-    """SSH 被测机配置(jump 为跳板隧道)。"""
+    """SSH 被测机配置(直连;如需跳板请在此扩展 jump 字段与 executor 支持)。"""
 
     host: str = "127.0.0.1"
     port: int = 22
@@ -55,14 +45,12 @@ class SSHConfig(BaseModel):
     password: Optional[str] = None
     key_file: Optional[str] = None
     timeout: float = 10.0
-    jump: Optional[SSHJumpConfig] = None
 
 
 class PoolConfig(BaseModel):
     """资源池配置。"""
 
     path: str = "config/resource_pool.yaml"
-    stale_timeout: float = 1800.0
     lock_timeout: float = 30.0
 
 

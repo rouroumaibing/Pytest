@@ -10,7 +10,7 @@ SharedFixtureGuard / TestContext 组装成 pytest fixtures,支持 xdist 并发�
     session   fixture_guard   共享 fixture 守护
     session   shared_env      “创建一次、各 worker 复用”的环境(示例)
     session   api_client      REST 客户端(认证 + 重试 + 摘要日志)
-    session   ssh_executor    SSH 执行器(直连或跳板,惰性连接)
+    session   ssh_executor    SSH 执行器(直连,惰性连接)
     function  ctx             用例级资源登记簿(用例结束自动清理)
     function  compute_host    从资源池申请一台机器,自动归还
 """
@@ -27,8 +27,8 @@ from atf.context import TestContext
 from atf.fixtures import SharedFixtureGuard
 from atf.http import BaseClient
 from atf.http.auth import build_auth
-from atf.resources import ResourcePool
-from atf.ssh import SSHTarget, SSHExecutor
+from atf.pool import ResourcePool
+from atf.ssh import SSHExecutor
 from atf.utils import setup_logging
 
 from schemas import AppConfig
@@ -58,7 +58,6 @@ def resource_pool(app_config: AppConfig, pool_owner: str) -> ResourcePool:
     """打开资源池;session 结束时归还本 worker 未释放的资源(防泄漏)。"""
     pool = ResourcePool(
         ROOT / app_config.pool.path,
-        stale_timeout=app_config.pool.stale_timeout,
         lock_timeout=app_config.pool.lock_timeout,
     )
     yield pool
@@ -118,35 +117,17 @@ def api_client(app_config: AppConfig) -> BaseClient:
 
 
 @pytest.fixture(scope="session")
-def ssh_target(app_config: AppConfig) -> SSHTarget:
-    """由配置构造 SSH 目标(含跳板隧道)。"""
+def ssh_executor(app_config: AppConfig) -> SSHExecutor:
+    """SSH 执行器(惰性连接,首个命令时才建链)。"""
     cfg = app_config.ssh
-    jump = (
-        SSHTarget(
-            host=cfg.jump.host,
-            port=cfg.jump.port,
-            username=cfg.jump.username,
-            password=cfg.jump.password,
-            key_file=cfg.jump.key_file,
-        )
-        if cfg.jump is not None
-        else None
-    )
-    return SSHTarget(
-        host=cfg.host,
-        port=cfg.port,
+    executor = SSHExecutor(
+        cfg.host,
         username=cfg.username,
         password=cfg.password,
+        port=cfg.port,
         key_file=cfg.key_file,
         timeout=cfg.timeout,
-        via=jump,
     )
-
-
-@pytest.fixture(scope="session")
-def ssh_executor(ssh_target: SSHTarget) -> SSHExecutor:
-    """SSH 执行器(惰性连接,首个命令时才建链)。"""
-    executor = SSHExecutor(ssh_target)
     yield executor
     executor.close()
 
@@ -159,8 +140,8 @@ def ctx(request: pytest.FixtureRequest) -> TestContext:
     """
     context = TestContext(name=f"{request.node.nodeid}")
     yield context
-    report = context.cleanup()
-    assert report.ok, f"cleanup failures: {report.failures}"
+    executed, failures = context.cleanup()
+    assert not failures, f"cleanup failures: {failures}"
 
 
 @pytest.fixture
@@ -175,7 +156,7 @@ def compute_host(
     TestContext,断言失败也会执行。
     """
     host = resource_pool.acquire(
-        query={"role": "compute"},
+        role="compute",
         owner=pool_owner,
         retries=10,
         interval=0.5,

@@ -10,7 +10,7 @@
         with guard.shared("env", create_env) as fx:
             # 把"退出持有"这个动作注册为资源清理,失败也会执行
             ctx.add_finalizer(lambda: guard.release_all(owner=worker_id))
-            host = pool.acquire(query={"role": "node"}, owner=worker_id)
+            host = pool.acquire(role="node", owner=worker_id)
             ctx.register(host, lambda h: pool.release(h["id"], owner=worker_id))
 
 零业务耦合:任何带"释放动作"的对象(客户端、执行器、临时文件、
@@ -20,39 +20,21 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
-from typing import Any, Callable, List, Optional, TypeVar
+from dataclasses import dataclass
+from typing import Any, Callable, List, Optional, Tuple, TypeVar
 
 from atf.utils.log import get_logger
 
 T = TypeVar("T")
 _logger = get_logger("atf.context")
 
+CleanupResult = Tuple[List[str], List[tuple]]
+
 
 @dataclass
 class _Finalizer:
     description: str
     func: Callable[[], Any]
-
-
-@dataclass
-class CleanupReport:
-    """一次 cleanup 的执行报告(可断言、可上报)。
-
-    Attributes:
-        executed: 成功执行的清理步骤描述列表(按执行顺序)。
-        failures: 失败的 ``(描述, 异常字符串)`` 列表。
-        duration: 清理总耗时秒数。
-    """
-
-    executed: List[str] = field(default_factory=list)
-    failures: List[tuple] = field(default_factory=list)
-    duration: float = 0.0
-
-    @property
-    def ok(self) -> bool:
-        """是否全部清理步骤都成功。"""
-        return not self.failures
 
 
 class TestContext:
@@ -68,7 +50,6 @@ class TestContext:
         self._name = name or "context"
         self._finalizers: List[_Finalizer] = []
         self._closed = False
-        self.report: Optional[CleanupReport] = None
 
     @property
     def name(self) -> str:
@@ -131,31 +112,31 @@ class TestContext:
 
     # ------------------------------------------------------------- 清理
 
-    def cleanup(self) -> CleanupReport:
-        """执行全部清理(LIFO),错误被收集进报告而不是抛出。
+    def cleanup(self) -> CleanupResult:
+        """执行全部清理(LIFO),错误被收集而不是抛出。
 
-        幂等:重复调用不会再执行已清理的项。
+        返回 ``(executed, failures)``:成功执行的步骤描述列表、失败的
+        ``(描述, 异常字符串)`` 列表。幂等:重复调用不会再执行已清理的项。
         """
-        report = CleanupReport()
+        executed: List[str] = []
+        failures: List[tuple] = []
         started = time.monotonic()
         while self._finalizers:
             item = self._finalizers.pop()
             if item.func is None:
-                report.executed.append(f"{item.description} (noop)")
+                executed.append(f"{item.description} (noop)")
                 continue
             try:
                 item.func()
-                report.executed.append(item.description)
+                executed.append(item.description)
                 _logger.debug("[%s] cleaned: %s", self._name, item.description)
             except Exception as exc:  # noqa: BLE001 - 单项失败不阻断其余清理
-                report.failures.append((item.description, f"{type(exc).__name__}: {exc}"))
+                failures.append((item.description, f"{type(exc).__name__}: {exc}"))
                 _logger.warning("[%s] cleanup failed for %s: %s", self._name, item.description, exc)
-        report.duration = time.monotonic() - started
         self._closed = True
-        self.report = report
-        if report.failures:
-            _logger.error("[%s] cleanup finished with %d failure(s)", self._name, len(report.failures))
-        return report
+        if failures:
+            _logger.error("[%s] cleanup finished with %d failure(s)", self._name, len(failures))
+        return executed, failures
 
     # ------------------------------------------------------------- 协议
 

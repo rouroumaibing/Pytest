@@ -16,7 +16,7 @@ from __future__ import annotations
 import pytest
 import yaml
 
-from atf.resources import ResourcePool
+from atf.pool import ResourcePool
 
 # 种子数据内联,不依赖外部 config/,保证框架自测零外部依赖(§9 重构)
 SEED = {
@@ -36,7 +36,7 @@ def integration_pool(tmp_path_factory):
     """独立副本池,避免污染仓库里的示例配置。"""
     pool_file = tmp_path_factory.mktemp("pool") / "pool.yaml"
     pool_file.write_text(yaml.safe_dump(SEED), encoding="utf-8")
-    return ResourcePool(pool_file, stale_timeout=3600, lock_timeout=10)
+    return ResourcePool(pool_file, lock_timeout=10)
 
 
 @pytest.fixture
@@ -44,7 +44,7 @@ def claimed_host(request, integration_pool):
     """每个用例申请一台 compute:4 worker 并发时会有 worker 进入等待窗口。"""
     worker = request.config.workerinput.get("workerid", "master") if hasattr(
         request.config, "workerinput") else "master"
-    host = integration_pool.acquire(query={"role": "compute"}, owner=worker,
+    host = integration_pool.acquire(role="compute", owner=worker,
                                     retries=20, interval=0.1)
     yield host
     integration_pool.release(host["id"], owner=worker)

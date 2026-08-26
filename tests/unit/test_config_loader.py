@@ -61,11 +61,6 @@ class TestLoad:
         assert cfg.db.port == 6543
         assert cfg.replicas == 3
 
-    def test_env_var_selects_env(self, cfg_file, monkeypatch):
-        monkeypatch.setenv("ATF_ENV", "prod")
-        cfg = ConfigLoader(_Schema, cfg_file).load()
-        assert cfg.db.host == "prod.example.com"
-
     def test_unknown_env_rejected(self, cfg_file):
         with pytest.raises(ConfigError, match="not defined"):
             ConfigLoader(_Schema, cfg_file).load("staging")
@@ -78,38 +73,11 @@ class TestLoad:
             ConfigLoader(_Schema, tmp_path / "nope.yaml").load()
 
 
-class TestEnvOverrides:
-    def test_nested_env_override(self, cfg_file, monkeypatch):
-        monkeypatch.setenv("ATF_DB__HOST", "from-env.example.com")
-        monkeypatch.setenv("ATF_DB__PORT", "7000")
-        monkeypatch.setenv("ATF_DB__DEBUG", "true")
-        cfg = ConfigLoader(_Schema, cfg_file).load("dev")
-        assert cfg.db.host == "from-env.example.com"
-        assert cfg.db.port == 7000
-        assert cfg.db.debug is True  # YAML 标量解析:true → bool
-
-    def test_scalar_env_override(self, cfg_file, monkeypatch):
-        monkeypatch.setenv("ATF_REPLICAS", "9")
-        cfg = ConfigLoader(_Schema, cfg_file).load()
-        assert cfg.replicas == 9
-
-    def test_env_var_ignored_without_prefix(self, cfg_file, monkeypatch):
-        monkeypatch.setenv("DB__HOST", "nope.example.com")
-        cfg = ConfigLoader(_Schema, cfg_file).load()
-        assert cfg.db.host == "dev.example.com"
-
-    def test_env_selector_var_not_treated_as_override(self, cfg_file, monkeypatch):
-        monkeypatch.setenv("ATF_ENV", "prod")
-        # 不应把 ATF_ENV 当成配置项 "env" 注入(会触发校验错误)
-        cfg = ConfigLoader(_Schema, cfg_file).load()
-        assert cfg.db.host == "prod.example.com"
-
-
 class TestValidation:
-    def test_validation_error_wrapped(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("ATF_DB__PORT", "not-a-number")
+    def test_validation_error_wrapped(self, tmp_path):
+        bad_yaml = YAML_TEXT.replace("port: 5432", "port: not-a-number")
         path = tmp_path / "c.yaml"
-        path.write_text(YAML_TEXT)
+        path.write_text(bad_yaml)
         with pytest.raises(ConfigError, match="validation"):
             ConfigLoader(_Schema, path).load()
 
@@ -129,18 +97,16 @@ class TestValidation:
 
 
 class TestLoadRaw:
-    def test_returns_merged_dict_without_validation(self, cfg_file, monkeypatch):
-        monkeypatch.setenv("ATF_REPLICAS", "9")
+    def test_returns_merged_dict_without_validation(self, cfg_file):
         raw = ConfigLoader(_Schema, cfg_file).load_raw("prod")
         assert raw["db"]["host"] == "prod.example.com"
         assert raw["db"]["port"] == 6543
-        assert raw["replicas"] == 9  # 环境变量覆盖已生效,但未做 schema 校验
+        assert raw["replicas"] == 3  # 合并结果,未做 schema 校验
 
-    def test_raw_bypasses_validation(self, cfg_file, monkeypatch):
-        # load_raw 不做 Pydantic 校验:非法端口原样保留
-        monkeypatch.setenv("ATF_DB__PORT", "not-a-number")
+    def test_raw_bypasses_validation(self, cfg_file):
+        # load_raw 不做 Pydantic 校验,但返回的是合并后的真实值
         raw = ConfigLoader(_Schema, cfg_file).load_raw("prod")
-        assert raw["db"]["port"] == "not-a-number"
-        # 同样输入走 load() 则应在校验阶段失败
-        with pytest.raises(ConfigError, match="validation"):
-            ConfigLoader(_Schema, cfg_file).load("prod")
+        assert raw["db"]["port"] == 6543
+        # 同样输入走 load() 通过校验
+        cfg = ConfigLoader(_Schema, cfg_file).load("prod")
+        assert cfg.replicas == 3

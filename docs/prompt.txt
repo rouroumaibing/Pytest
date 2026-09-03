@@ -1,34 +1,118 @@
-# 任务
-设计通用python自动化测试框架，适用于“REST API + SSH”被测系统，零业务耦合
+# Task
+Design a generic Python automated testing framework for systems with "REST API management plane + SSH node plane".
+Zero business couping. Each module can be used independently.
 
-# 核心模块
+# Architectural Principles (Core Constraints - Each Must Be Reflected)
 
-## 1.ResourcePool
-YAML持久化资源池，支持acquire/release（任意条件过滤）、重试（retries + interval）、批量分配（acquire_batch）、跨进程互斥（FileLock）。
+## 1. Resource Pool
+- YAML persistence: state changes are immediately written back to file
+- FileLock for cross-process mutual exclusion (support pytest-xdist multi-worker)
+- Pre-operation reload: acquire/release operations lock first then read latest state from file, no in-memory cache
+- Support retries (retries + interval) and batch allocation
+- Resource structure is generic dict, no predefined field names
+- **CRITICAL:** Status values must be exactly "free" and "allocated" - no other values like "busy", "disabled", "available", or "in_use"
 
-## 2.SSHExector
-paramiko 封装，支持直连和跳板（tunnel转发），命令执行、文件传输、架构探测、日志脱敏。
+## 2. SSH Executor 
+- Dual mode: direct connection + jump host (direct-tcpip tunnel)
+- Jump host mode: open channel through existing SSH connection's transport, no intermediate shell
+- Command execution returns structured result (stdout/stderr/exit_code/duration)
+- Automatic log sanitization (passwords replaced with ***)
+- Architecture detection support (uname -m, result cached)
 
-## 3.BaseClient
-requests封装，可插拔认证（Token/Cookie/ApiKey/自定义）、extra_header、重试、摘要日志、统一异常。
+## 3. HTTP Client
+- Pluggable authentication stategy (Token/Cookie/ApiKey/Custom, unified interface)
+- Dual-layer Token refresh: proactive expiration check before sending (buffer time configurable), passive refresh on 401 as fallback
+- Real-time credential reading: re-fetch creadentials from auth strategy before each request, no cached copy from initialization
+- extra_headers: per-request header override/append, does not pollute Session
+- Unified exception hierarchy (distinguish 404/network/timeout/status codes) 
+- **CRITICAL:** Must provide `_request_with_files(method, path, file=None, data=None, extra_headers=None, base_url_override=None)` method for multipart/form-data uploads and custom base_url. Automatically strips Content-Type header (let request set multipart bounddary). Support base_url_override for calling external services.
 
-## 4.SharedFixtureGuard
-xdist并发下fixture创建/清理互斥，状态持久化（JSON）、超时接管（防奔溃死锁）。
+## 4. Concurrent Fixture Guard
+- State file (JSON) + FileLock for cross-process coordination
+- First worker creates, other workers wait and reuse
+- Timeout takeover: creating state exceeding threshold is treated as crash, allows takeover
+- Only creator is responsible for cleanup
+- Support exclusive lock sections (multi-process serial execution of critical sections)
+- **CRITICAL:** Must provide these explicit core methods:
+  - `should_create(metadata={}) -> bool`: first caller returns True, others return False
+  - `mark_created(metadata={})`: creator calls after resource is built
+  - **`mark_failed(metadata={})`**: creator calls if creation fails (REQUIRED)
+  - `is_creator() -> bool`: return whether this process is the creator
+  - **`wait_until_created(check_fn: Callable, timeout: float) -> bool`**: non-creators poll user-defined readiness check (REQUIRED). check_fn is NOT just checking the state file - it's a callable like `lambda: api.get_cluster_status() == "Available"`
+  - `cleanup()`: removes state file
 
-## 5.ConfigLoader
-YAML + 环境变量 + Pydantic校验，多环境支持。
+## 5. Test Resource Cleanup
+- LIFO stack: later-registered resources are cleaned up first (preserves dependency order)
+- Async resources support pre-cleanup waiting (e.g., wait for cluster deletion to complete)
+- Cleanup failure triggers automatic retry  (retry_count + retry_interval)
+- Cleanup failure does not block subsequent resource recovery
+- skip_cleanup_on_failure: skip cleanup when test fails, preserve state for debugging
 
-## 6.TestContext
-测试级资源注册 + 自动清理（try/finally），与SharedFixtureGuard配合。
+## 6. Configuration Loading
+- YAML multi-environment merge (default + envs.(env) deep merge)
+- ${VAR} placeholder substiution with environment variable values
+- .env file loading injects into os.version (existing environment variables take precedence)
+- Pydantic model validation (type safety + defaults + required field checks)
+- **CRITICAL:** Must provide a Configuration Registry pattern:
+  ```python
+    class ConfigRegistry:
+      def register(self, yaml_path: list[str], model_cls: type[BaseModel], fixture_name: str = None):
+        """Registry a YAML path -> Pydantic model mapping.
+        yaml_path: e.g., ["common"] loads common section from dynamic.yaml
+        model_cls: Pydantic model to validate the section
+        fixture_name: optional pytest fixture name to bind the loaded config
+        """
+  ```
+  Usage in conftest.py:
+  ```python
+  REGISTRY = ConfigRegistry("config.yaml")
+  REGISTRY.registry(["common"], CommonConfig, fixture_name="global_config")
+  REGISTRY.registry(["ssh"], SshConfig, fixture_name="ssh_config")
 
-# 技术栈
-pytest、pytest-xdist、requests、paramiko、pydantic、PyYAML、filelock
+  @pytest.fixture(sope="sesion")
+  def global_config() -> CommonConfig:
+    return REGISTRY.get("global_config")
 
-# 约束
-- 零业务耦合，模块可独立使用
-- 提供conftest.py示例和配置文件实力
-- 类型注解完整、docstring完整
+  ```
 
-# 输出
-先输出目录结构和核心接口，确认后再实现。
+## 7. Async Polling Utility (WaitHelper)
+- Generic until() method: polls condition function until it returns expected value or timeout
+- Exception tolerance: condition exceptions do not interrupt polling, continue waiting
+- Proactive Token refresh during long polling: prevents Token expiration during polling
+- Readiness judgment is defined by caller (framework does not prese business state machines)
 
+## 8. Exception Hierarchy
+- Framework base class -> module exceptions (HTTP/SSH/Pool/Config/Fixture)
+- Exceptions carry context: domain information like status_code/response_data/resource_id automatically appended to message
+- Base class carries original_exception to preserve exception chain
+- 404 automatically converted to ResourceNotFoundError (with resource_type + resource_id)
+
+## 9.Log Verbosity
+- Inspired by k8s --v=N pattern, log_verbosity is the single control point
+- Custom levels: V2 (API summary), V4 (full response body), V5 (trace-level)
+- pytest handler level set to NOTSET (0), no secondary filtering, otherwise custom levels below DEBUG would be discarded
+- Automatic sensitive data sanitization (passwords/Tokens/keys replaced with ***)
+
+## 10. Data Model Layer
+- Builder pattern: chainable construction of complex request bodies (with_xxx returens self), build() outputs standard dict
+- from_api_response pattern: automatic mapping from API response dict to object attributes + convenience properties (e.g., id = metadata.uid)
+- Model does not hold Client references (Client-Model separation)
+- Exceptions are not swallowed: type errors in from_api_response are raised normally, not silently reset
+
+## 11. Multi-stage Pipeline Orchestration
+- Serial stage execution: stages execute in order, any failure causes subsequent stages to skip
+- Resume from checkpoint (resume_from): continue from specified stage, skip completed stages
+- Skipped stage result marked as "skipped", do not affect final success judgment
+- Stateless design: no checkpoint files introduced, user manually specifies recovery point
+
+## 12. General Contraints
+- Zero business coupling: no preset business concepts like "node/cluster/organization"
+- Complete type annotations, complete docstrings
+
+# Tech Stack
+pytest, pytest-xdist, requests, paramiko, pydantic, PyYAML, filelock
+
+# Output Requirements
+1. Output directory structure and core class signatures first
+2. Implement code after design confirmation
+3. Provide conftest.py example + configuration file example + TestCase example

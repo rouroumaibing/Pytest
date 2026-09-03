@@ -1,0 +1,81 @@
+"""testkit — a generic, business-agnostic Python test framework.
+
+The framework targets systems composed of two planes:
+
+* a **REST API management plane** (HTTP client, authentication, resource pool)
+* an **SSH node plane** (command executor over direct or jump-host connections)
+
+Every module is designed to be usable independently with zero business
+coupling: there are no preset concepts such as "cluster", "node", or
+"organization" anywhere in the package.
+"""
+
+from testkit.exceptions import (
+    TestKitError,
+    ConfigError,
+    PoolError,
+    HTTPError,
+    ResourceNotFoundError,
+    SSHError,
+    FixtureError,
+    CleanupError,
+    PipelineError,
+)
+from testkit.config.loader import ConfigRegistry
+from testkit.pool.resource_pool import ResourcePool
+from testkit.ssh.executor import SSHExecutor, SSHResult
+from testkit.http.auth import (
+    AuthStrategy,
+    TokenAuth,
+    CookieAuth,
+    ApiKeyAuth,
+    CustomAuth,
+)
+from testkit.http.client import HTTPClient
+from testkit.fixture.guard import ConcurrentFixtureGuard
+from testkit.cleanup.resource_cleanup import ResourceCleanup
+from testkit.utils.wait import WaitHelper, WaitTimeout
+from testkit.model.base import BaseModel, Builder
+from testkit.pipeline.stage import Pipeline, StageResult
+
+__all__ = [
+    # exceptions
+    "TestKitError",
+    "ConfigError",
+    "PoolError",
+    "HTTPError",
+    "ResourceNotFoundError",
+    "SSHError",
+    "FixtureError",
+    "CleanupError",
+    "PipelineError",
+    # config
+    "ConfigRegistry",
+    # pool
+    "ResourcePool",
+    # ssh
+    "SSHExecutor",
+    "SSHResult",
+    # http
+    "AuthStrategy",
+    "TokenAuth",
+    "CookieAuth",
+    "ApiKeyAuth",
+    "CustomAuth",
+    "HTTPClient",
+    # fixture
+    "ConcurrentFixtureGuard",
+    # cleanup
+    "ResourceCleanup",
+    # utils
+    "WaitHelper",
+    "WaitTimeout",
+    # model
+    "BaseModel",
+    "Builder",
+    # pipeline
+    "Pipeline",
+    "StageResult",
+]
+
+__version__ = "0.1.0"

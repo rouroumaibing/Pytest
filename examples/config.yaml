@@ -1,0 +1,31 @@
+# Example configuration with multi-environment overlay and ${VAR} placeholders.
+#
+# Resolution order:
+#   1. default section is the base
+#   2. envs.<env> is deep-merged over the base (env from TESTKIT_ENV or ConfigRegistry(env=...))
+#   3. ${VAR} / ${VAR:-default} placeholders are substituted from os.environ
+
+default:
+  common:
+    api_base_url: "http://localhost:8080"
+    timeout: 30.0
+    # Secrets can come from the environment, with a fallback default:
+    admin_password: "${ADMIN_PASSWORD:-change-me}"
+  ssh:
+    host: "${SSH_HOST:-127.0.0.1}"
+    port: 22
+    username: "root"
+
+envs:
+  prod:
+    common:
+      api_base_url: "https://api.prod.example.com"
+      timeout: 60.0
+    ssh:
+      host: "node-1.prod.example.com"
+      username: "ops"
+  staging:
+    common:
+      api_base_url: "https://api.staging.example.com"
+    ssh:
+      host: "node-1.staging.example.com"

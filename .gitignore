@@ -18,6 +18,7 @@ env/
 
 # --- 测试 / 覆盖率缓存(可再生) ---
 .pytest_cache/
+.pytest_tmp/
 .coverage
 .coverage.*
 htmlcov/

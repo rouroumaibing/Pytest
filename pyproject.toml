@@ -1,17 +1,15 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "atf"
+name = "testkit"
 version = "0.1.0"
-description = "通用 REST API + SSH 自动化测试框架(零业务耦合,模块可独立使用)"
+description = "A generic, business-agnostic Python test framework for systems with a REST API management plane and an SSH node plane."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = [
-    "pytest>=7.0",
-    "pytest-xdist>=3.0",
     "requests>=2.28",
     "paramiko>=3.0",
     "pydantic>=2.0",
@@ -19,13 +17,17 @@ dependencies = [
     "filelock>=3.9",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-xdist>=3.3",
+]
+
 [tool.setuptools.packages.find]
-where = ["src"]
+include = ["testkit*"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["src"]
-addopts = "-ra --strict-markers"
-markers = [
-    "sut: 需要真实被测环境(REST API / SSH)的示例用例",
-]
+testpaths = ["tests", "examples"]
+python_files = ["test_*.py"]
+pythonpath = ["."]
+addopts = "-ra --basetemp=.pytest_tmp"

@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="pAmDxPFYDR3Ve4UP0PR7Rl">
+<head data-page-node-id="IfI0r6KOawFRr9kXHKsLjy">
+<meta charset="UTF-8" data-page-node-id="oX2sGFfdm5ETIe2BUwSE4E">
+<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="DCdzKU848iLxgVmWH6IGws">
+<title>testkit — 通用自动化测试框架设计文档</title>
+<style>
+  :root {
+    --bg: #f7f8fa;
+    --surface: #ffffff;
+    --surface-2: #f0f3f7;
+    --border: #e3e8ef;
+    --text: #1f2430;
+    --text-2: #5a6474;
+    --text-3: #8a94a6;
+    --accent: #2563eb;
+    --accent-soft: #e8f0fe;
+    --green: #16a34a;
+    --green-soft: #e9f9ef;
+    --red: #dc2626;
+    --red-soft: #fdecec;
+    --amber: #d97706;
+    --amber-soft: #fdf3e3;
+    --mono: "SFMono-Regular", "JetBrains Mono", Consolas, "Liberation Mono", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --radius: 10px;
+    --shadow: 0 1px 3px rgba(16, 24, 40, 0.06), 0 1px 2px rgba(16, 24, 40, 0.04);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .layout { display: flex; max-width: 1200px; margin: 0 auto; }
+
+  /* ---- Sidebar ---- */
+  .sidebar {
+    position: sticky;
+    top: 0;
+    align-self: flex-start;
+    width: 260px;
+    height: 100vh;
+    overflow-y: auto;
+    padding: 28px 20px;
+    border-right: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .sidebar .brand { font-weight: 700; font-size: 17px; margin-bottom: 4px; }
+  .sidebar .brand small { color: var(--text-3); font-weight: 400; display: block; font-size: 12px; }
+  .sidebar nav { margin-top: 20px; }
+  .sidebar a {
+    display: block;
+    color: var(--text-2);
+    text-decoration: none;
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 13.5px;
+    margin-bottom: 1px;
+  }
+  .sidebar a:hover { background: var(--surface-2); color: var(--text); }
+  .sidebar a.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+
+  /* ---- Main ---- */
+  .main { flex: 1; min-width: 0; padding: 40px 48px 80px; }
+
+  .hero { padding: 8px 0 28px; border-bottom: 1px solid var(--border); margin-bottom: 32px; }
+  .hero h1 { font-size: 30px; margin: 0 0 8px; letter-spacing: -0.5px; }
+  .hero .subtitle { color: var(--text-2); font-size: 16px; margin: 0 0 18px; }
+  .badges { display: flex; flex-wrap: wrap; gap: 8px; }
+  .badge {
+    font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px;
+    background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border);
+  }
+  .badge.ok { background: var(--green-soft); color: var(--green); border-color: transparent; }
+  .badge.acc { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+
+  h2 {
+    font-size: 22px; margin: 48px 0 16px; padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+  h2:first-of-type { border-top: none; }
+  h2 .secnum { color: var(--accent); margin-right: 10px; font-variant-numeric: tabular-nums; }
+  h3 { font-size: 17px; margin: 28px 0 10px; }
+
+  p { margin: 10px 0; color: var(--text); }
+  .muted { color: var(--text-2); }
+
+  /* ---- Cards ---- */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; margin: 18px 0; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px 18px; box-shadow: var(--shadow);
+  }
+  .card h4 { margin: 0 0 6px; font-size: 15px; }
+  .card p { margin: 0; font-size: 13.5px; color: var(--text-2); }
+
+  /* ---- Table ---- */
+  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--surface-2); font-weight: 600; color: var(--text-2); font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.4px; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--surface-2); }
+  td code, th code { font-family: var(--mono); font-size: 12.5px; background: var(--surface-2); padding: 1px 6px; border-radius: 4px; color: #0f766e; }
+
+  /* ---- Code ---- */
+  pre {
+    background: #0f172a; color: #e2e8f0; border-radius: var(--radius);
+    padding: 18px 20px; overflow-x: auto; font-family: var(--mono);
+    font-size: 13px; line-height: 1.6; margin: 14px 0;
+  }
+  pre code { font-family: inherit; }
+  .kw { color: #7dd3fc; } .str { color: #86efac; } .com { color: #64748b; } .fn { color: #f0abfc; }
+
+  /* ---- Callout ---- */
+  .callout {
+    border-left: 3px solid var(--accent); background: var(--accent-soft);
+    padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 16px 0; font-size: 14px;
+  }
+  .callout.crit { border-color: var(--red); background: var(--red-soft); }
+  .callout b { font-weight: 600; }
+
+  /* ---- Tree ---- */
+  .tree { font-family: var(--mono); font-size: 13px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 20px; line-height: 1.75; overflow-x: auto; }
+  .tree .d { color: var(--accent); font-weight: 600; }
+  .tree .c { color: var(--text-3); }
+
+  .pills { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+  .pill { font-size: 12px; font-family: var(--mono); background: var(--surface-2); border: 1px solid var(--border); padding: 2px 9px; border-radius: 6px; color: var(--text-2); }
+
+  footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid var(--border); color: var(--text-3); font-size: 13px; }
+
+  @media (max-width: 900px) {
+    .sidebar { display: none; }
+    .main { padding: 24px 20px 60px; }
+  }
+</style>
+</head>
+<body data-page-node-id="mMgqCvvSoJewmYVga4v1AL">
+<div class="layout" data-page-node-id="qGNMy1tuwuNncdb7OSEPI1">
+
+  <aside class="sidebar" data-page-node-id="0JR1VA1uEdeJIK4ZcFLWfZ">
+    <div class="brand" data-page-node-id="mvBnYj5RgTyK1pLaRlc4LN">testkit<small data-page-node-id="OwWbbgIj5KEKwdiPHCIEbq">通用测试框架 · 设计文档</small></div>
+    <nav data-page-node-id="j4bVoZZcthEaHFPPpfOjwh">
+      <a href="#overview" class="active" data-page-node-id="uVXj0NRswzr5IsvEbEGxGi">1. 概览</a>
+      <a href="#structure" data-page-node-id="oThYXQmOJCTGCu59ePEO2Q">2. 目录结构</a>
+      <a href="#pool" data-page-node-id="HTwPN59pQTTMe9CSXt0P4m">3. 资源池</a>
+      <a href="#exceptions" data-page-node-id="pPnE2IJkOpFjbfSL4TbCdU">4. 异常层级</a>
+      <a href="#ssh" data-page-node-id="ZjuWj9BQulCvnOCe6rDzGj">5. SSH 执行器</a>
+      <a href="#http" data-page-node-id="SVhJvnXSlz80kyDj9KCeoA">6. HTTP 客户端</a>
+      <a href="#guard" data-page-node-id="16UnEHKScr6zN88y4Z7aKn">7. Fixture Guard</a>
+      <a href="#config" data-page-node-id="VEpfsyBuVumTz6KCn0L90m">8. 配置加载</a>
+      <a href="#cleanup" data-page-node-id="yQC6FH4uI6iFydJfzoF5YV">9. 资源清理</a>
+      <a href="#wait" data-page-node-id="bbJHgbTZDyBGRtmgH1txH3">10. WaitHelper</a>
+      <a href="#logging" data-page-node-id="doMfE4K7FEgSpIetFSPB7o">11. 日志 Verbosity</a>
+      <a href="#model" data-page-node-id="R4XTtRTC1U8xNiIMxVtqmy">12. 数据模型</a>
+      <a href="#pipeline" data-page-node-id="b2QwQHznWuL4A7xny1EXSn">13. Pipeline</a>
+      <a href="#usage" data-page-node-id="NFc3qGX9Slum8WAHP9vnTu">14. 示例用法</a>
+      <a href="#verify" data-page-node-id="i9XRdZoD7vIatTCj9ORZ0p">15. 验证结果</a>
+    </nav>
+  </aside>
+
+  <main class="main" data-page-node-id="7f3ezzjM8LhLO9YbgHFrJW">
+
+    <div class="hero" data-page-node-id="tuRXK6AxBc1yozNrkUslLb">
+      <h1 data-page-node-id="09ZKaoQpjSP7XMGyxCe56s">testkit 设计文档</h1>
+      <p class="subtitle" data-page-node-id="Y1NPS2hS7Kw6w5cBMPZyXI">面向「REST API 管理面 + SSH 节点面」系统的通用 Python 测试框架 —— 零业务耦合，每个模块可独立使用。</p>
+      <div class="badges" data-page-node-id="klQGW56KdF1Uo3x4kVc89c">
+        <span class="badge acc" data-page-node-id="o7O5plEyr6Gj6ErP52C4Zw">Python ≥ 3.10</span>
+        <span class="badge" data-page-node-id="BSJ6qetC9RBCBVcg3kb9Bb">pytest · xdist · requests · paramiko · pydantic · PyYAML · filelock</span>
+        <span class="badge ok" data-page-node-id="VRFLpx2LFGBiuXPb5e60vX">156 passed</span>
+        <span class="badge ok" data-page-node-id="kCMsSEX68pk57qFKOdObnk">v0.1.0</span>
+      </div>
+    </div>
+
+    <!-- 1. Overview -->
+    <h2 id="overview" data-page-node-id="tJASpZBSX2XmOm7RPylvMc"><span class="secnum" data-page-node-id="D287MLRCWIcw81equKnmQZ">1</span>概览</h2>
+    <div class="grid" data-page-node-id="EfKtVGiAdULao9Viu9eUwH">
+      <div class="card" data-page-node-id="q3pGYim4Bm6n8F9b3qdszH"><h4 data-page-node-id="7NIua4ad076udBHwRKFyNI">定位</h4><p data-page-node-id="SmF9sAranSeaHAt53DiMQt">业务无关的测试基础设施层，不预设 node / cluster / organization 等业务概念。</p></div>
+      <div class="card" data-page-node-id="hRpOtRqEQvC4S4F5Kz0xzl"><h4 data-page-node-id="I7WvBPeD7PVYSaVpCHLBkw">核心抽象</h4><p data-page-node-id="vXX0zcWKR4p2n1LoaQP5qw">管理面 = HTTP Client + 资源池 + 配置；节点面 = SSH Executor + 架构探测。</p></div>
+      <div class="card" data-page-node-id="uMAXCfMlE0t6KOXVWncEEC"><h4 data-page-node-id="F07l0vPhmELWnrgt6vTlIi">交付形态</h4><p data-page-node-id="lhDTHtWF3NZ9oVTjAVakQL">纯 Python 包，<code data-page-node-id="4ftFlhKI02BkvC5dkMCeZH">pip install -e .</code> 后 <code data-page-node-id="CaRXMTSMGaLBDGZdrLCKWA">import testkit</code> 即可。</p></div>
+      <div class="card" data-page-node-id="0XlVgKLKJ7byM54fKrRcfE"><h4 data-page-node-id="7nc1fB2f2U4FH8fMN7OGON">验证门禁</h4><p data-page-node-id="LkfSbxsW9C3NGNkMdHpZoQ"><code data-page-node-id="0Oc7FV5SRFXk04i7DBu0zF">py_compile</code> + <code data-page-node-id="k2TmIBqUssOxNyyZu2xkjP">pytest</code>（含 xdist 并发），156 用例全绿。</p></div>
+    </div>
+
+    <!-- 2. Structure -->
+    <h2 id="structure" data-page-node-id="6IYYPPQvJqLw53lbmyPHC2"><span class="secnum" data-page-node-id="BhcDg14IeErohNCAEhMFyf">2</span>目录结构</h2>
+    <div class="tree" data-page-node-id="CXDUCAnmgiVXGKAdDhklVH">
+<span class="d" data-page-node-id="SS3BpB5Llf0VjWRedOT6Kw">pytest/</span>
+├── pyproject.toml            <span class="c" data-page-node-id="AWpWQFStiL4KOS2lkiRyKd"># 打包元数据 + pytest 配置</span>
+├── README.md / README.zh-CN.md
+├── docs/
+│   ├── prompt.txt            <span class="c" data-page-node-id="Qe37GrJ6u4PkiL6ikB6Yul"># 原始需求提示词</span>
+│   └── DESIGN.md             <span class="c" data-page-node-id="KtiCSUoE6W9EUaBUFVUpFY"># 本设计文档</span>
+├── <span class="d" data-page-node-id="MvbwcFHomKieHxOUddN2mt">testkit/</span>                  <span class="c" data-page-node-id="NjgYfNQPA3vCVFBV0Lf6WQ"># 框架包（零业务耦合）</span>
+│   ├── __init__.py           <span class="c" data-page-node-id="ETrZFqPcAIC6kPCIIffx3H"># 顶层导出 27 个符号</span>
+│   ├── exceptions.py         <span class="c" data-page-node-id="dfNGBDwK4HfqyWrxjmKspf"># §4 异常层级</span>
+│   ├── logging_setup.py      <span class="c" data-page-node-id="q2jpcP2Nded3UwKxDuplHY"># §11 日志 verbosity</span>
+│   ├── config/loader.py      <span class="c" data-page-node-id="ILTFmcTNukuWvKrhe0n5Z3"># §8 配置加载</span>
+│   ├── pool/resource_pool.py <span class="c" data-page-node-id="kHuuiBjb1vWqafe7CS2Kyk"># §3 资源池</span>
+│   ├── ssh/executor.py       <span class="c" data-page-node-id="YhFpolmkiR0sADPRRj8eDQ"># §5 SSH 执行器</span>
+│   ├── http/{auth,client}.py <span class="c" data-page-node-id="7yeXjK3u3wSewz46FE6TBK"># §6 HTTP 客户端</span>
+│   ├── fixture/guard.py      <span class="c" data-page-node-id="oYy41iq0bj6Ie3ZpsdH7Bl"># §7 并发 Fixture Guard</span>
+│   ├── cleanup/resource_cleanup.py <span class="c" data-page-node-id="sE1UylmLsbDRLCra1bjJpx"># §9 资源清理</span>
+│   ├── utils/wait.py         <span class="c" data-page-node-id="s4b79olwa89W56UrvadyzU"># §10 WaitHelper</span>
+│   ├── model/base.py         <span class="c" data-page-node-id="llEqyxhmIvbJpUPlzSiRlK"># §12 数据模型</span>
+│   └── pipeline/stage.py     <span class="c" data-page-node-id="N4gb5mtWAgyE4ZSTCHgWkm"># §13 Pipeline</span>
+├── <span class="d" data-page-node-id="wh0iSAkKN5BozGfyxWqnqG">tests/</span>                    <span class="c" data-page-node-id="0xL2gMEv9rJqQOP1UcS3Wc"># 12 个模块的单元测试（139 例）</span>
+└── <span class="d" data-page-node-id="Jk0QeSr1NNgi6v5ybYyFNK">examples/</span>                 <span class="c" data-page-node-id="qdvplCp3nNgz1FazEGOt0P"># conftest + config.yaml + 冒烟用例</span>
+    </div>
+
+    <!-- 3. Pool -->
+    <h2 id="pool" data-page-node-id="smhNzY9SZTzvP9YAzo9yn6"><span class="secnum" data-page-node-id="Abur6FreM0K4FdqjOMz52E">3</span>资源池（Resource Pool）</h2>
+    <p class="muted" data-page-node-id="ta6RpynLDXRSkMOXY7VxCf">文件 <code data-page-node-id="OC3iZAv0KSUFXCvOpLHrAL">testkit/pool/resource_pool.py</code> · 类 <code data-page-node-id="aqzadVFJFbQ82x7qfwdk8J">ResourcePool</code></p>
+    <div class="table-wrap" data-page-node-id="vDVSflXCfcBJbdlfRle0zW"><table data-page-node-id="VFYj6HTSypear6w4ThFESS">
+      <thead data-page-node-id="3qmvtN0iLFF5AbfCkdAB9t"><tr data-page-node-id="MNDUpH9d1aqP9pjXzLzfuQ"><th data-page-node-id="gOQjXyu8EbgGXNfM8fFdBV">需求</th><th data-page-node-id="z6Ma9hfBxPU5nnYZ6GX3fe">实现要点</th></tr></thead>
+      <tbody data-page-node-id="27DGcWqDj16eUFj4V1P8XF">
+        <tr data-page-node-id="TXMl3PaIZHZjB78yGdamH7"><td data-page-node-id="C6Av4TdyGH9VxKCAcZRtwr">YAML 持久化</td><td data-page-node-id="kAzQ34BkQGCA41h0YXLnE5">每次 <code data-page-node-id="Pj3HlDeiBF1K9nYb1hQKOa">add</code>/<code data-page-node-id="xd8UjHv4ILMsDRLPtAVRup">acquire</code>/<code data-page-node-id="41JZC8m5FaCLF1PrE7Kks1">release</code> 后立即原子写回（tmp + <code data-page-node-id="YfJylesTgRnnJogj8vKF9l">os.replace</code>）</td></tr>
+        <tr data-page-node-id="wscpTBfhkBdnoNRmozx8yr"><td data-page-node-id="VT15gpIVbIsOeYnxOo9cEa">跨进程互斥</td><td data-page-node-id="zJ1yxL0bPkApU1HWko2Bfs"><code data-page-node-id="v3gsP9AGpb63zmPSGSAoYg">FileLock(path + ".lock")</code>，pytest-xdist 多 worker 共享同一把锁</td></tr>
+        <tr data-page-node-id="lHFCUvGwqVXSGVW3IAzfO6"><td data-page-node-id="dszejLhB1zJvHinZLco2j9">预操作 reload</td><td data-page-node-id="kSUlWgTs4eHZ5TO0FiYBAo">加锁后 <code data-page-node-id="jYhETxGNOLIfFdAcVQRCTf">_read()</code> 重新读盘，<b data-page-node-id="vdU4YvcBuEKAxB0VtFISr9">无内存缓存</b>，杜绝陈旧状态</td></tr>
+        <tr data-page-node-id="UGzL1q5km0uo1No9t2vpVH"><td data-page-node-id="REg58eqTFNsASGRgCxFthq">重试 + 批量分配</td><td data-page-node-id="2cnZF1e7ITMYXb8xyf24GR"><code data-page-node-id="9QVtdHll8wdbDV0LHi3ZwF">acquire(count, predicate, retries, interval)</code>，锁内按 <code data-page-node-id="oVICB60Au5dXxdcCFyXerF">count</code> 批量标记</td></tr>
+        <tr data-page-node-id="Z5RvhcvaFnEO5tmtoDEX8j"><td data-page-node-id="0SNd7xE8KieJbK1h6kiGL2">通用结构</td><td data-page-node-id="GeqUXkyBrHzFUlbkgy7zfj">资源为通用 <code data-page-node-id="vdZlr5hQTTXbbpckLlRYCI">dict</code>，仅约定 <code data-page-node-id="pbTxQnY3jlbnDvGU3pErat">status</code> 字段，<code data-page-node-id="etmAAU8DDbyWnIzdRRDEVh">id_field</code> 可配置</td></tr>
+        <tr data-page-node-id="ch07ZNud5Qir6DRKWUybxD"><td data-page-node-id="qu92WIKKfIL7EbO3B7ITC8">CRITICAL status</td><td data-page-node-id="BjvSNVLaTmQs1Ues7RoXGz">状态严格只有 <code data-page-node-id="kAgCtiSgV5kGbSYf6y0oPW">"free"</code> / <code data-page-node-id="yOGrYM8j0hxBKN7qwciCt6">"allocated"</code>，<code data-page-node-id="1dfbSrJWY6C2bUKJuaRLiZ">_validate_status</code> 拒绝其他取值</td></tr>
+      </tbody>
+    </table></div>
+    <pre data-page-node-id="LIXjGiQhIzqwSauCSmkZvR"><code data-page-node-id="lA4Rqe8aHlH33CSVOYtjzn"><span class="kw" data-page-node-id="BzXN1rU0ehVYxkiSGjSXxR">class</span> ResourcePool:
+    <span class="kw" data-page-node-id="adtZqlfoiOLF9YCYKoV8B3">def</span> <span class="fn" data-page-node-id="RQqSUM1SBDKDzGYu8yS1zU">__init__</span>(self, path, retries=<span class="str" data-page-node-id="ng5RF6QbBBA9OCGLaDi6FJ">3</span>, interval=<span class="str" data-page-node-id="9HauYZIYJE3IBGw5WkwVhZ">1.0</span>, id_field=<span class="str" data-page-node-id="0RinGNeIqgaH463kdOjNZs">"id"</span>)
+    <span class="kw" data-page-node-id="lgdYnPrZ1AAI292OZ3wimZ">def</span> <span class="fn" data-page-node-id="JTi3dOUL9q0MTDoaRof8vR">add</span>(self, resource: dict)              <span class="com" data-page-node-id="QvXLi4RnT6RkhxoACGDDLu"># 新增 free 资源</span>
+    <span class="kw" data-page-node-id="WdGpszofHjrY8cQBo7LFHd">def</span> <span class="fn" data-page-node-id="8Cv5bGRw8k1nI4WjWnOF9c">acquire</span>(self, count=<span class="str" data-page-node-id="M4N1AmQzcU5Ffz2JHDpH71">1</span>, predicate=None, retries=None, interval=None) -> list[dict]
+    <span class="kw" data-page-node-id="iRjDsKmMZ52oGjkct000y0">def</span> <span class="fn" data-page-node-id="RQ9hFyo7lQuUox4EIpPtJK">release</span>(self, resources)                <span class="com" data-page-node-id="WaujQCwXghpdBa0iDmIgb2"># 归还为 free</span>
+    <span class="kw" data-page-node-id="cwBA83bKQETb40RPaOjgSE">def</span> <span class="fn" data-page-node-id="MAl7CKIdXqsX4DKbGRILmz">release_all</span>(self);  <span class="kw" data-page-node-id="GjY5PTEQ9L38VrYIkhxyPj">def</span> <span class="fn" data-page-node-id="OB1sUzN6CTiKYBd3CN01sl">remove</span>(self, resource_id);  <span class="kw" data-page-node-id="4fVwRZpkn01vQjYUTM56Pd">def</span> <span class="fn" data-page-node-id="LyNhAUxyCjeceYkhAoLZfk">list</span>(self)</code></pre>
+
+    <!-- 4. Exceptions -->
+    <h2 id="exceptions" data-page-node-id="CRvmVowI8SuJLZlipNgh4F"><span class="secnum" data-page-node-id="K2a4dOZYmS6sHsHbsdID62">4</span>异常层级（Exception Hierarchy）</h2>
+    <p class="muted" data-page-node-id="Bs1cOeXzrq4E0JGAVPUPBT">文件 <code data-page-node-id="zqIp8YdfvfBEKhkoqWYEt5">testkit/exceptions.py</code></p>
+    <pre data-page-node-id="G0Iy4cYARMSZDswlFTt8Is"><code data-page-node-id="pp47u5Sxx1yHyPh0oUHI96">TestKitError  <span class="com" data-page-node-id="HPuZ7UPlYtsV4r5VK7Rif3"># 框架基类：携带 original_exception 保留异常链 + context 字典</span>
+├── ConfigError        <span class="com" data-page-node-id="wWSmrSFyYQVx3aT7WninfL"># 配置加载/校验</span>
+├── PoolError          <span class="com" data-page-node-id="zrhu6TigkMDdxpxT2f628C"># 资源池</span>
+├── HTTPError          <span class="com" data-page-node-id="aCwFYcIGW63w2Zv1GxRaeX"># HTTP（含 status_code / response_data）</span>
+│   └── ResourceNotFoundError  <span class="com" data-page-node-id="jIC30qIYfCmV9WYxYSR2Px"># 404 自动转换（含 resource_type / resource_id）</span>
+├── SSHError           <span class="com" data-page-node-id="EqKQYd1NyEP2goWL0TfwfZ"># SSH（含 command / exit_code / stderr）</span>
+├── FixtureError       <span class="com" data-page-node-id="OnmxME7M6d34aVNPzcWP4s"># 并发 Fixture Guard</span>
+├── CleanupError       <span class="com" data-page-node-id="ThVL33NO4Pz1nADHSFR6FJ"># 资源清理</span>
+└── PipelineError      <span class="com" data-page-node-id="ruFmvK8f02G8umMxewYVBa"># Pipeline 编排</span></code></pre>
+    <p data-page-node-id="ab06tMiSnLKcLxcDrxAYLG">关键机制：<b data-page-node-id="VbmoW1z1mvNkgbD9SVdIIy">context 字典</b>（异常 message 由 context 拼接生成，便于诊断）；<b data-page-node-id="m0ascHwWKVBbVvChh1B5J8">404 → ResourceNotFoundError</b>（携带 <code data-page-node-id="tTzPETKTFezrcgJvBs9zEJ">resource_type</code>/<code data-page-node-id="2n2xlsCOEXt6SODJkrhDG2">resource_id</code>）；<b data-page-node-id="AcOx5Kr6P4rFRby7XMC7At">链式保留</b>（<code data-page-node-id="NB8Poy52zNnYtDChQ3lk42">original_exception</code> 不丢失完整 traceback）。</p>
+
+    <!-- 5. SSH -->
+    <h2 id="ssh" data-page-node-id="K8R2VKKyM3jabgcIZKBpEB"><span class="secnum" data-page-node-id="GEtz0UvCfnJ1WzTUtxSviR">5</span>SSH 执行器（SSH Executor）</h2>
+    <p class="muted" data-page-node-id="E2CQC9Ko0lVhFKQophuC6B">文件 <code data-page-node-id="Qfk2qRXNC3NUBbFkdXwmAz">testkit/ssh/executor.py</code> · 类 <code data-page-node-id="3vmAM7iOWnOPPKyA34lRfL">SSHExecutor</code> / <code data-page-node-id="fOhYGwIZRtOfzxx2Eu9R7U">SSHResult</code></p>
+    <div class="table-wrap" data-page-node-id="FvAugwt0SQOovpXhg5TAVO"><table data-page-node-id="OckfCuxeVGzGxTr11nubCQ">
+      <thead data-page-node-id="sv2Cck95issDclFsuxzqcn"><tr data-page-node-id="MDwXQW2Do8NtYqRJA9YMRY"><th data-page-node-id="kO47l82j0I76mjGHeRTJlY">需求</th><th data-page-node-id="Mg8mMAdqvguH7esnzSrNgP">实现要点</th></tr></thead>
+      <tbody data-page-node-id="SaPCsOiuyJ65rD7bLnUbEH">
+        <tr data-page-node-id="UnjLbhigGnlKiF5QyEzS9f"><td data-page-node-id="OicOZpCJXT6dOw6DbkA5VT">双模式</td><td data-page-node-id="IiGWS9fuY6wiTuWqtdG1r3">直连；跳板机（jump host）</td></tr>
+        <tr data-page-node-id="zaZ4gg0wMBwBCPRXKccM1w"><td data-page-node-id="30JCaM2RiHq0G9hd8OGZO1">跳板机 direct-tcpip</td><td data-page-node-id="3IHuYYGuONcDxjxyRTe0N1">通过 <code data-page-node-id="WjDAG3SbP9x0svxj5JLg0m">transport.open_channel("direct-tcpip", dest, src)</code> 建隧道，<b data-page-node-id="IOgJcBCGNZHztmFnbmpFF9">无中间 shell</b></td></tr>
+        <tr data-page-node-id="rBNWypFABh2Y6E8oAQJTcU"><td data-page-node-id="BKnHBqk9gWb8mGIehGp4Qh">结构化结果</td><td data-page-node-id="jWcaBNVSTMmBd7OjKOvufU"><code data-page-node-id="78Mi1JgFQXSEJpMjGqoAbH">SSHResult(command, stdout, stderr, exit_code, duration, ok)</code></td></tr>
+        <tr data-page-node-id="HjqSXXhkm3Z6cdKFxdP3fW"><td data-page-node-id="NPxKVHPWvCVij1B2Y6A69w">日志脱敏</td><td data-page-node-id="xzmtdTNAbpGudUmqgaX62Q"><code data-page-node-id="TP4dXsQsLayEmU6OmVm6Fm">_sanitize</code> 将 password 替换为 <code data-page-node-id="hUtBT5iMdIRuv1sOmi6CUm">***</code></td></tr>
+        <tr data-page-node-id="DIiQJGNEJn0IslQCpGT8Ec"><td data-page-node-id="MISEL8y8uhoZaLcuX347G8">架构探测缓存</td><td data-page-node-id="4RXlKjJ5f12GqSzDlkYEX0"><code data-page-node-id="uIkr9QUanMwSMUsDYBx94V">get_architecture()</code> 执行 <code data-page-node-id="Roj06I9nRyPSXfDsTqBf4D">uname -m</code>，结果缓存，<code data-page-node-id="fhdCK7myMjDmP54QtPHkiV">refresh=True</code> 可强制重测</td></tr>
+      </tbody>
+    </table></div>
+    <pre data-page-node-id="UnRXvJguaJyCX5z1tlolY6"><code data-page-node-id="Fnqcv6DkT1NOZ2VvCQUI2a"><span class="kw" data-page-node-id="tZ36dkyRxB6158CHHAMY2k">@dataclass</span>
+<span class="kw" data-page-node-id="WRvGLyK4JKOTZGqJisoEPe">class</span> SSHResult:
+    command: str; stdout: str; stderr: str; exit_code: int; duration: float
+    <span class="kw" data-page-node-id="ebKpG3CpBzZbsqFwLRIkS1">@property</span> ok -> bool   <span class="com" data-page-node-id="tX8EDq5q84a23JgQik7kt0"># exit_code == 0</span>
+
+<span class="kw" data-page-node-id="3zMEZxzlnpOp5SkqOQzHPu">class</span> SSHExecutor:
+    <span class="kw" data-page-node-id="70aha1DzkRyjpfxfbdI0dD">def</span> <span class="fn" data-page-node-id="sLBf45jbWNPIVQ9jNfT5JW">connect</span>(self)                                 <span class="com" data-page-node-id="sDlXSCkrPRrpRgBtFDMwa2"># 直连或经跳板机隧道</span>
+    <span class="kw" data-page-node-id="nc4dluu6545erKmSGZ8ue4">def</span> <span class="fn" data-page-node-id="fKyaeOQfhDRYNju5hqpV86">execute</span>(self, command, timeout=None, raise_on_error=False) -> SSHResult
+    <span class="kw" data-page-node-id="nSzfhdD9P1x2O8ynLWEHG6">def</span> <span class="fn" data-page-node-id="RNGrBglmszFwUrIXWFmSIB">get_architecture</span>(self, refresh=False) -> str    <span class="com" data-page-node-id="CaqZa1bKyfB2RD6sMfUDwg"># uname -m，缓存</span>
+    <span class="kw" data-page-node-id="eJJfw75rmcPafjK3JVjrEi">def</span> <span class="fn" data-page-node-id="cRbJXga8hZcvKUfzn3hyoN">close</span>(self)</code></pre>
+
+    <!-- 6. HTTP -->
+    <h2 id="http" data-page-node-id="3EwM0sCHLEDy8iqsfYni6p"><span class="secnum" data-page-node-id="jQC5dGgcWnDXVRA7CfdDXQ">6</span>HTTP 客户端与认证策略</h2>
+    <p class="muted" data-page-node-id="CEiLvcN1qXGPUDi4OO7kbW">文件 <code data-page-node-id="oO6Z9Vin4vESUQNwFmscxA">testkit/http/auth.py</code> + <code data-page-node-id="V6kyFCF07fJhbKq69JNwdu">testkit/http/client.py</code></p>
+    <h3 data-page-node-id="B2KoakICx7CwtBrSo6kU0k">认证策略（统一接口）</h3>
+    <div class="pills" data-page-node-id="7L5B7nSqZ6zVwGghl5AokA">
+      <span class="pill" data-page-node-id="aGL8ETChuvCLw65DoqlAYn">TokenAuth</span><span class="pill" data-page-node-id="BY2EzsdISKE4WzvIQ73Imq">CookieAuth</span><span class="pill" data-page-node-id="fTgNoglGt79SdJ6BCbYqQb">ApiKeyAuth</span><span class="pill" data-page-node-id="Ix8hf2idiKTlAZQhXJKPSc">CustomAuth</span>
+    </div>
+    <pre data-page-node-id="4RBfAVpYbpf6a9QZQ160S9"><code data-page-node-id="QktvUAaR1XcI2X1wn4rc5b"><span class="kw" data-page-node-id="QaBFgLhtDtJ17VHvjX1Sx8">class</span> AuthStrategy(ABC):
+    <span class="kw" data-page-node-id="sWhtFttGbQK5K0rZcGTZCI">def</span> <span class="fn" data-page-node-id="BcnIiz9NWhSDxp3JpiiVHh">get_headers</span>(self) -> dict[str, str]   <span class="com" data-page-node-id="qOQED6x3oZIeeHEgZpmzCJ"># 每次请求实时读取（不缓存快照）</span>
+    <span class="kw" data-page-node-id="JUei2Gy7WyGuZxl26FAYNb">def</span> <span class="fn" data-page-node-id="8FT9WypEsbHuOfE6QJJ41F">is_expired</span>(self) -> bool              <span class="com" data-page-node-id="KslYWOFp8vhF1ymNfnIAlu"># 主动过期判断（含 buffer_time）</span>
+    <span class="kw" data-page-node-id="MJyVXJIpSBQtyFkp9sBufF">def</span> <span class="fn" data-page-node-id="5Im6ZCzdBZJGryrIG616pD">refresh</span>(self)                        <span class="com" data-page-node-id="70St2ax25ENEfPy4zc3lKS"># 主动/被动刷新</span>
+    <span class="kw" data-page-node-id="4mRYg9ee4EsEvmXB1cDMSV">def</span> <span class="fn" data-page-node-id="PkaJizVl6yPLBxhSMKvE2k">should_refresh_on_401</span>(self, response) -> bool</code></pre>
+    <div class="table-wrap" data-page-node-id="jqSaaoTDx0PO719qTnuwE4"><table data-page-node-id="Z9F4Pd9Apy2KD5tQofpGRP">
+      <thead data-page-node-id="K5KSNFUtG1ZscAsy5EGTzH"><tr data-page-node-id="UAKzz4g91NhyKgjmczxHyc"><th data-page-node-id="uasCcbxFGUg6NGHY7rJdF9">需求</th><th data-page-node-id="XSG4b1jg3kEW4UDQVexHCL">实现要点</th></tr></thead>
+      <tbody data-page-node-id="8AT78ob8ym67teTK5CtfpW">
+        <tr data-page-node-id="gQzTlgwRfp7xKosNpATBcF"><td data-page-node-id="NI9sfBz9PZOx9xJCvtB96N">双 Token 刷新</td><td data-page-node-id="X3hA0ySV2KEDidk8iIumKB">主动：<code data-page-node-id="o6vBj406MFBRt36DHn12W5">is_expired()</code>（含 buffer）→ <code data-page-node-id="Na7FkAQyCFcsRONru1guqX">refresh()</code>；被动：401 → <code data-page-node-id="pjD0UP3US74QcB2hJv9UjS">refresh()</code> 后重试一次</td></tr>
+        <tr data-page-node-id="Dhbm2dJJAENEDO5caeasJu"><td data-page-node-id="86uEGRCbOf5McZTdg5evEN">实时凭据</td><td data-page-node-id="wcFLvDf830lLhPWKzaKP6c">每次请求前 <code data-page-node-id="X9QbCrrLVsH5Vu2EJzzAoO">auth.get_headers()</code>，<b data-page-node-id="54KwYjmLKbR0nGr6OPxyyo">不缓存初始化快照</b></td></tr>
+        <tr data-page-node-id="dxUHSUE78KkRwNpnC9nlOw"><td data-page-node-id="MdTax7tOYDrrM5NoQ46DwW">extra_headers</td><td data-page-node-id="LtAIy7i4TG7qIyjujLwoyH"><code data-page-node-id="3qbZXUfPKBbYd3rEcfneDH">_merge_headers</code> 大小写不敏感合并/覆盖，<b data-page-node-id="ai4MNbSEFx5WTj0SWObSDo">不污染 Session</b></td></tr>
+        <tr data-page-node-id="M9yYeXeEIdvM5NdijkIEPT"><td data-page-node-id="iulLo9wIftucVIdXkW8B74">统一异常</td><td data-page-node-id="YSviLTwlUM8f1eNBvcPzlm">区分 404 / 网络 / 超时 / 其他状态码，映射到异常层级</td></tr>
+        <tr data-page-node-id="wyLsuEzfkXxAfokdpVyZRK"><td data-page-node-id="DL4hkpQR2wtcbSbybYDlo3">CRITICAL <code data-page-node-id="G2wSSHJsiiFJvaR4H3pS1A">_request_with_files</code></td><td data-page-node-id="t5EXqd4zIz2kh44cXncbg7">multipart 上传；<b data-page-node-id="P9EZoCx0Z1JSiYdoSjMJZf">自动剥离 Content-Type</b>（交给 requests 生成 boundary）；支持 <code data-page-node-id="LSCxfbafnhPpYA5enpGOsj">base_url_override</code></td></tr>
+      </tbody>
+    </table></div>
+    <pre data-page-node-id="Y2nB3ocFDVPrKCbA5qSMx2"><code data-page-node-id="fVkti14uqzyjXRVpWZF5Ae"><span class="kw" data-page-node-id="s3ZhYHCoMQ0AjQq8PfMsEd">def</span> <span class="fn" data-page-node-id="Bf6tnNkGDOgCeNEfqTMpTs">_request_with_files</span>(self, method, path, file=None, data=None,
+                        extra_headers=None, base_url_override=None) -> requests.Response</code></pre>
+
+    <!-- 7. Guard -->
+    <h2 id="guard" data-page-node-id="AMS6qncqjItIPsRzyKGPbk"><span class="secnum" data-page-node-id="ShDeS0D49vqzRTlw4lSxM0">7</span>并发 Fixture Guard</h2>
+    <p class="muted" data-page-node-id="bo7CXuV97H81lXjsOgxbBf">文件 <code data-page-node-id="BvVDXgSFS3FRLZebTdKd9K">testkit/fixture/guard.py</code> · 类 <code data-page-node-id="XDNlWvvylpLplXCOBih1rD">ConcurrentFixtureGuard</code></p>
+    <div class="callout crit" data-page-node-id="LxCdTZVFkGAKgvPLAGZZJl"><b data-page-node-id="zMrMDVQWvxGl930Ijbn4T5">CRITICAL：</b>6 个显式核心方法全部提供，其中 <code data-page-node-id="0vodWfMpF4ASKGDHQEbv1O">mark_failed()</code> 与 <code data-page-node-id="3zKZrHBKOsTjrbCQrtgkNy">wait_until_created(check_fn, timeout)</code> 为硬性要求。</div>
+    <pre data-page-node-id="pp0lzNG6wLpDB1zwz7yksy"><code data-page-node-id="10SKEJrXACouAjwYXPQpmg"><span class="kw" data-page-node-id="ShIvHeF2Bi392281NuWtaK">class</span> ConcurrentFixtureGuard:
+    <span class="kw" data-page-node-id="cvqZwUDcXrP4YKNFPnlMiZ">def</span> <span class="fn" data-page-node-id="awBG4vVSKVI0q1P2yylPAg">should_create</span>(self, metadata=None) -> bool   <span class="com" data-page-node-id="LeFoQtDXSIQ9WVBd8o3I3Y"># 首调用 True，其余 False</span>
+    <span class="kw" data-page-node-id="pOAjLf4VLQNGh7eWQYK3AE">def</span> <span class="fn" data-page-node-id="hCxcjLTVmJRergPW4VOrSj">mark_created</span>(self, metadata=None)            <span class="com" data-page-node-id="aF975rNC0Wy0BwosrXK6Js"># 创建者构建完成后调用</span>
+    <span class="kw" data-page-node-id="4NW9EdYiiB049jCBTmFnia">def</span> <span class="fn" data-page-node-id="4wb6yT8wqeSj1YPUOmeqME">mark_failed</span>(self, metadata=None)             <span class="com" data-page-node-id="DkLmkVtCUHYmaSoGz36bDK"># 创建失败调用（REQUIRED）</span>
+    <span class="kw" data-page-node-id="8FE93jyAGdumJvn0PLcRWB">def</span> <span class="fn" data-page-node-id="6E9wo9s8JQFz14I2ElgqoD">is_creator</span>(self) -> bool
+    <span class="kw" data-page-node-id="k9aRW2kXgCwsmZPJOpPUKj">def</span> <span class="fn" data-page-node-id="pNK3FuuvLHPFa6wQuVyu9F">wait_until_created</span>(self, check_fn, timeout) -> bool
+        <span class="com" data-page-node-id="0lXEpxXzGjFejKzQ6zttgX"># 非创建者轮询用户定义的 readiness 检查，非仅查 state 文件</span>
+        <span class="com" data-page-node-id="9yR73SyALgxj68DfBYZzZQ"># 例如：lambda: api.get_cluster_status() == "Available"</span>
+    <span class="kw" data-page-node-id="ch8vKmPivhwGGqTsnsxYFx">def</span> <span class="fn" data-page-node-id="apdnXnEM5nMCbXvIN6acNN">cleanup</span>(self) -> bool                          <span class="com" data-page-node-id="F7n8lzmkPBYmdU8H149FP5"># 仅创建者删除 state 文件</span>
+    <span class="kw" data-page-node-id="Sc4u8eA3YeFtZpjCla8dDl">def</span> <span class="fn" data-page-node-id="MW01ueAiTfv4IdoAmonDfy">exclusive</span>(self)                              <span class="com" data-page-node-id="VlS1Bt9TOGJmORrqaPSEEh"># 独占临界区（多进程串行）</span></code></pre>
+    <p data-page-node-id="nxIoV4gBaTyS9MfIESFUTy">另支持 <b data-page-node-id="qP13rLRY7PMWDWZQjvib1y">超时接管</b>：<code data-page-node-id="uhWSqTEqhcoku0jQW7UbfX">creating</code> 状态超过阈值视为崩溃，允许接管重建。</p>
+
+    <!-- 8. Config -->
+    <h2 id="config" data-page-node-id="ZdmSr1DnT8BhAew73Fg1rW"><span class="secnum" data-page-node-id="Z3kFue6Cc76tE5jkNHGzKr">8</span>配置加载（ConfigRegistry）</h2>
+    <p class="muted" data-page-node-id="niygJOyYwc09LKzpOmQTlQ">文件 <code data-page-node-id="2MIFhwXIjyRLUBAxas5uo7">testkit/config/loader.py</code> · 类 <code data-page-node-id="ga6ZMkkyCSFtSEQ4HqKLRj">ConfigRegistry</code></p>
+    <div class="table-wrap" data-page-node-id="jPoveMiygkO22WFwaijiQs"><table data-page-node-id="NglcPMIPAVmnkdJMtDbh9E">
+      <thead data-page-node-id="1KGVZR3nimnQuF7sZXt7sb"><tr data-page-node-id="70DT58FEPlKQh4Rl4CiIAS"><th data-page-node-id="JcKGgECZNxHcU9HhYg7ECg">需求</th><th data-page-node-id="ovTE75YMxvvBy6lwMc0LLU">实现要点</th></tr></thead>
+      <tbody data-page-node-id="IsLAxmrJJPiZVcZPjrGvEk">
+        <tr data-page-node-id="wDm5TakIf5yrFjpF61fIIP"><td data-page-node-id="Eqxn5A0grW82lUZJWsrUth">YAML 多环境合并</td><td data-page-node-id="DDfz71rXQ1C6w3Sfbca6Vc"><code data-page-node-id="1CgbMuvRMCpwieUWniMqih">default</code> + <code data-page-node-id="nBzYZjtAd0qNsGsoVAXPSn">envs.&lt;env&gt;</code> deep merge</td></tr>
+        <tr data-page-node-id="GXy13KM5wNunoxHkZEAcVK"><td data-page-node-id="BQb2cD1MyoR60lNMCJdLfk"><code data-page-node-id="toyHSDsbG5NJAYKWv7zr5J">${VAR}</code> 占位符</td><td data-page-node-id="D0mfN2Z5O83lAJ1XYsaDsN">递归替换为环境变量值，支持 <code data-page-node-id="EvSDAV7tNL4tjV8rD0pE3V">${VAR:-default}</code></td></tr>
+        <tr data-page-node-id="beIHathDqiEDjkcBxsH7X0"><td data-page-node-id="g90WQntvJ5simlqX7NUmp1">.env 加载</td><td data-page-node-id="sdtkPCN8aAw5k6jc1Zgpe0">注入 <code data-page-node-id="v8JsUX0An8e5S6kVS0BGdt">os.environ</code>，<b data-page-node-id="UwjMn90Knhk3xfgUGNWpl9">已存在变量优先</b></td></tr>
+        <tr data-page-node-id="PbEwARWoCMNSP3a1AAoMpb"><td data-page-node-id="6vyo6W8ULrCf8Qx6zotICf">Pydantic 校验</td><td data-page-node-id="tWPIZsOFppsa1IE6o3pl3Z">类型安全 + 默认值 + 必填校验</td></tr>
+        <tr data-page-node-id="R14NlcBKOxCdvNm5WpdME3"><td data-page-node-id="Ejp91YAB5CJYjYtMsranUA">CRITICAL ConfigRegistry</td><td data-page-node-id="xgAJirwAPUZcks1T9e2tTF"><code data-page-node-id="G1hYJKau9STRnyDCw2RkQb">register()</code> 建立 <code data-page-node-id="FIYOGLOnCOAExeC5KTytD5">yaml_path → model</code> 映射，绑定 pytest fixture</td></tr>
+      </tbody>
+    </table></div>
+    <pre data-page-node-id="qiDOthTQ4SW18NWHfC0fcw"><code data-page-node-id="dSyJC6mGxmEi5x21DkPBGa"><span class="kw" data-page-node-id="KLG4BgIMuWW84k7UxMcqtn">class</span> ConfigRegistry:
+    <span class="kw" data-page-node-id="vo25969DGi1M1Ji4bHgmsk">def</span> <span class="fn" data-page-node-id="i7se3aRA2u1g8fUge7jiCe">register</span>(self, yaml_path: list[str], model_cls, fixture_name=None) -> "ConfigRegistry"
+        <span class="com" data-page-node-id="8IvzIGTSnWvwWiwZP2V0zu"># yaml_path=["common"] 加载 common 段；fixture_name 绑定 fixture；registry 为别名</span>
+    <span class="kw" data-page-node-id="TQPfZRZlLdfcA49khqpp1z">def</span> <span class="fn" data-page-node-id="awSCMKM1nQlxuIeLGhmPaO">get</span>(self, fixture_name) -> BaseModel</code></pre>
+
+    <!-- 9. Cleanup -->
+    <h2 id="cleanup" data-page-node-id="8WKewLuVue6D7D8EidMYsW"><span class="secnum" data-page-node-id="OisyYdu70FydGWCDwOyqOk">9</span>资源清理（Resource Cleanup）</h2>
+    <p class="muted" data-page-node-id="Bfz6i9N0cvcuqkCocApZ9M">文件 <code data-page-node-id="2lrlywG6MA0wRxszhPk6Lz">testkit/cleanup/resource_cleanup.py</code> · 类 <code data-page-node-id="qpcAgR9wQD9soU7EmY6Lrr">ResourceCleanup</code></p>
+    <div class="table-wrap" data-page-node-id="dxmRPvmd1wKwKeA3YWSLm8"><table data-page-node-id="lJJIxxZ6ZfYSvD8kDif6MC">
+      <thead data-page-node-id="uusUUm03X2PLLeY3Lpdqte"><tr data-page-node-id="Y8s4AMdlmmOlcx2pnQ2IZM"><th data-page-node-id="m7M19d7W2svJ2AWNewQ2DE">需求</th><th data-page-node-id="vPFvvexSBcddO3p11ormc1">实现要点</th></tr></thead>
+      <tbody data-page-node-id="qT6Gx3tNQsTEvXqQgBofLd">
+        <tr data-page-node-id="ykBXHv0xJHai9bz5wModMF"><td data-page-node-id="wFYCvDlHaFr05blu8bAez9">LIFO</td><td data-page-node-id="0g1dDGD9CHzS3ILAAXiohn">后注册先清理，保持依赖逆序</td></tr>
+        <tr data-page-node-id="UMaWwjO4MKKCBjCF5LBRyK"><td data-page-node-id="rFTrbC5byzdotDWLfuPdJJ">异步资源等待</td><td data-page-node-id="wN7SAHzQfbTmE1XZ0QY1Sf"><code data-page-node-id="TSSa0PpUyDkkoHkfjDNQ1o">wait_fn</code> 谓词轮询至就绪或超时</td></tr>
+        <tr data-page-node-id="HGa3EHJypb370ck8yJ3tkl"><td data-page-node-id="GbHMfgHlm1PeCa6cIsCcQO">自动重试</td><td data-page-node-id="vkStaxoP74qJp1D1TXb6bL"><code data-page-node-id="pIu2ROCt85YWJmBuJm0iq4">retry_count</code> + <code data-page-node-id="G3h7GM8YiTbjoCXmvejZo5">retry_interval</code></td></tr>
+        <tr data-page-node-id="AYRnZHh5OSKJUyXFXQiTu9"><td data-page-node-id="ndyK692uvaNiRCPMXIa4j1">失败不阻断</td><td data-page-node-id="E0aZFVvy6SDffReknGhHEt">单资源失败仅记录，继续清理后续资源</td></tr>
+        <tr data-page-node-id="4Jfgod4In6Ywp8jqae3wMO"><td data-page-node-id="Q2HG1mwNgv76jN7ZjsqCuu">skip_cleanup_on_failure</td><td data-page-node-id="KuOTMgnq9r2Jccs7NoG70h">测试失败时跳过清理，保留现场</td></tr>
+      </tbody>
+    </table></div>
+
+    <!-- 10. Wait -->
+    <h2 id="wait" data-page-node-id="UHSvd3sVTiOpgF2HT1MEMM"><span class="secnum" data-page-node-id="SxjlExD6R2JSbASxy2SGSK">10</span>WaitHelper（异步轮询）</h2>
+    <p class="muted" data-page-node-id="eoaAUS6g7X1CQr2U4Jtr8L">文件 <code data-page-node-id="BbMles0NXB573xHSwO9Z3l">testkit/utils/wait.py</code> · 类 <code data-page-node-id="o8hGX9DkBcyOhEFAjgiZbD">WaitHelper</code> / <code data-page-node-id="eABNspVaIATmCPQ7ZkJAOn">WaitTimeout</code></p>
+    <div class="table-wrap" data-page-node-id="pzU28V1nYB8zC3Lg58KMqB"><table data-page-node-id="NOTt46kBdbOs1q6hWbuQSX">
+      <thead data-page-node-id="jFSEC6g49uTNewieyegmy2"><tr data-page-node-id="ybB173fZTiCMEqooRsbssx"><th data-page-node-id="cKdCV4cbuC5yFLfcSEJWDp">需求</th><th data-page-node-id="LLgs5SeAeYLq9qXVPC9adR">实现要点</th></tr></thead>
+      <tbody data-page-node-id="SkAyKumhdxU7Rs7OLEn4lq">
+        <tr data-page-node-id="N6cSWXTWD3CXvmRchIozn1"><td data-page-node-id="MqrmTIzC1nNmUOFKdpRs8V">泛型 <code data-page-node-id="3oHwrHSgYUnpVCEmsy5MQD">until()</code></td><td data-page-node-id="H3BJxWheAycoixjrOu091q">轮询条件函数直至返回期望值或超时</td></tr>
+        <tr data-page-node-id="DvPN6UHBjydipQRXvYTIFJ"><td data-page-node-id="PnhPODKDB7mkNmPWvg5BuH">异常容忍</td><td data-page-node-id="IWtnxEZpjvGBcaGlKBurh5">条件抛异常不中断轮询，继续等待</td></tr>
+        <tr data-page-node-id="u1IL0eecHO2AvYvAHewLwL"><td data-page-node-id="7Sw4p50Lnfcc0C2qY19rZV">轮询中刷新凭据</td><td data-page-node-id="H6ZMHjTApdai8F7Dakoh2N">周期性调用 <code data-page-node-id="y9sbd2CdQywf1uF8h0PquI">refresh_fn</code>（<code data-page-node-id="XzsoEmEam3Gji68MNMAenE">refresh_interval</code> 秒一次）</td></tr>
+        <tr data-page-node-id="U9p22Zd5tpUwAF8QpJuPn8"><td data-page-node-id="PvWdOhBP4XLKKj3Ya0GsBH">就绪判断外置</td><td data-page-node-id="BdOaWHW2sPsWGdS9k9MlwR">框架不预设业务状态机，由调用方定义</td></tr>
+      </tbody>
+    </table></div>
+    <pre data-page-node-id="TGPumr3WqHxiZzK4kkjdG9"><code data-page-node-id="wLME3rnQBwR3nEaq53KCYC"><span class="kw" data-page-node-id="ERZWg7B0uR8iHnsyq2lyEI">def</span> <span class="fn" data-page-node-id="Yhto1XEgeR6EhoniwLGcZz">until</span>(self, condition, expected=&lt;sentinel&gt;, timeout=None, interval=None) -> Any
+<span class="kw" data-page-node-id="b4zgwrEapF90puarVymKzO">def</span> <span class="fn" data-page-node-id="wkeINHh7wYqF3NtJ7EdAHz">until_true</span>(self, condition, timeout=None, interval=None) -> Any</code></pre>
+
+    <!-- 11. Logging -->
+    <h2 id="logging" data-page-node-id="jdUC9kJdWcztclq2Jueixa"><span class="secnum" data-page-node-id="9x2HHxVtW1EzrchHB2A5PE">11</span>日志 Verbosity</h2>
+    <p class="muted" data-page-node-id="Kz04iAVwXkzpnc3D6aANoE">文件 <code data-page-node-id="7ozKpeu3zYzLWwHf6Y8uwd">testkit/logging_setup.py</code></p>
+    <div class="table-wrap" data-page-node-id="EDPDUzTodu23tIWlRcOclC"><table data-page-node-id="ysRD0yNje8l7FTNvPHLqsY">
+      <thead data-page-node-id="PafFFEDPnAWrLrvXEMYlra"><tr data-page-node-id="okFW1uJEn1gDcQAwaHhP9l"><th data-page-node-id="ugj5PtCgndwoXwEJFKejL6">需求</th><th data-page-node-id="addNLC6aMoJs48RcVZjqiQ">实现要点</th></tr></thead>
+      <tbody data-page-node-id="7ydm41TQu3X8GuE75ufYPR">
+        <tr data-page-node-id="tmULIYCT1gD6DYHqO3Lbvr"><td data-page-node-id="G59paTOSy2kwghknFrVeg3">k8s <code data-page-node-id="KenrnkbmtHl8JBLcmE2p7q">--v=N</code> 模式</td><td data-page-node-id="BoVwEJixNixxvsEAnNd0Ng"><code data-page-node-id="l6s2diGD8bYrLWhXBU5sMg">log_verbosity</code> 单点控制</td></tr>
+        <tr data-page-node-id="OiEaeYjCGZHxIMZ9W2UVdk"><td data-page-node-id="JTVcJZXdKaUa9UXrSNXS17">自定义级别</td><td data-page-node-id="dk7YeLxOaSMvjGlA48Xobn"><code data-page-node-id="8dIUdoiD1jXjfnq9APrtQz">V2</code>（13，API 摘要）、<code data-page-node-id="WQKG6Ridng2WBxzP8x5Bq8">V4</code>（7，完整响应体）、<code data-page-node-id="S97b9JYcmSEm00in8jnJcv">V5</code>（5，trace）</td></tr>
+        <tr data-page-node-id="CIdjNRxN8nOFhxJp46ynTk"><td data-page-node-id="5Qtl072kcsVgOmw1Pcn9Om">pytest handler = NOTSET</td><td data-page-node-id="RBDYZ5ffwAz7EuVpi1maaU">级别设为 <code data-page-node-id="brYu0xcxj5eN3oi4SkCgDS">0</code>，避免二次过滤丢弃低于 DEBUG 的自定义级别</td></tr>
+        <tr data-page-node-id="2gBSJn6tR1rLzprbUwJMaE"><td data-page-node-id="palFe74GHJRla9Q9K4TEjT">敏感脱敏</td><td data-page-node-id="b8peFY3kRDyTzyTDktdCYO">password / token / key / Authorization 替换为 <code data-page-node-id="0z77Qe4wUsBbB8cGwwM00E">***</code></td></tr>
+      </tbody>
+    </table></div>
+
+    <!-- 12. Model -->
+    <h2 id="model" data-page-node-id="I6rpT00scGW5tXDkeCpLVF"><span class="secnum" data-page-node-id="VR1uEbF1T4Kt9BYOea7sR7">12</span>数据模型层（Data Model）</h2>
+    <p class="muted" data-page-node-id="Ltklb6FiDIGdFfpZef3P02">文件 <code data-page-node-id="pASpQzJfVGOTKX5HOgWTqi">testkit/model/base.py</code> · 类 <code data-page-node-id="MF8DFuQoVIl8eJommqBrLg">BaseModel</code> / <code data-page-node-id="xBRgAaxKrZltB7aCxMPgpj">Builder</code></p>
+    <div class="table-wrap" data-page-node-id="6pxKyORpUC9C6G0aMAX7Mh"><table data-page-node-id="35USGeoiIS9YW0DiTfbyEG">
+      <thead data-page-node-id="pBl8RwThnbAAvgGBMsMXBZ"><tr data-page-node-id="CPmrHBFmCfXzt1yIAhb1no"><th data-page-node-id="ox4sMBZ2JV1F9KTC28YHk0">需求</th><th data-page-node-id="Ht0eVcV2Pth7XVMVPPEVvA">实现要点</th></tr></thead>
+      <tbody data-page-node-id="MSWL61izAUdyZni5QFoFW4">
+        <tr data-page-node-id="rK5Lbrm98FwOEKpS4j3aaV"><td data-page-node-id="Wff79qiJhFYdLlekslLREr">Builder 链式</td><td data-page-node-id="ctz5GUfZ3QnFgGB630Ex0W"><code data-page-node-id="8ZDr4Pe6qBZiZaBtfnLXzI">with_xxx</code> 委托 <code data-page-node-id="L3VYdKIaJwybvxEgMk7FVX">_with</code> 返回 <code data-page-node-id="417ZRTOM7sUy1BIINZX8YK">self</code>，<code data-page-node-id="XCRl7bPBcsvFOqwU7hqGNU">build()</code> 输出新 dict</td></tr>
+        <tr data-page-node-id="DM0OWdGTSvp35k7sVHQ7Du"><td data-page-node-id="4u0o0lWNh1c5mg5aoAd2t7">from_api_response</td><td data-page-node-id="dQL56Sn728nAatQJshAQZO">API dict → 对象属性自动映射 + 便捷别名（如 <code data-page-node-id="0tZ9MwtrpaTNRqR2ypuvNW">id = metadata.uid</code>）</td></tr>
+        <tr data-page-node-id="9VYTqgxTotUoKqN1rfFTDt"><td data-page-node-id="PG4npMGaejgpsoVhwzqVN9">Client-Model 分离</td><td data-page-node-id="Lp5lzNeErLgijhds78oTR8">模型不持有 Client 引用</td></tr>
+        <tr data-page-node-id="YbJFRfqDxz2pdlo16ObNL3"><td data-page-node-id="sg8b9HzYI9Qxn7AYdxrjry">不吞异常</td><td data-page-node-id="3jry8LOaT1GlfbgHPAoXkr">类型错误正常抛出，不静默重置</td></tr>
+      </tbody>
+    </table></div>
+
+    <!-- 13. Pipeline -->
+    <h2 id="pipeline" data-page-node-id="Ko3huSwn7JBP43BtM1uQUA"><span class="secnum" data-page-node-id="53Jf5BynsCmZHZKNcs5Ae6">13</span>多阶段 Pipeline 编排</h2>
+    <p class="muted" data-page-node-id="YOhAWaqGlhJRKPOU9ZYeHO">文件 <code data-page-node-id="f7WywmRp6hi7Hpyh9eBeJr">testkit/pipeline/stage.py</code> · 类 <code data-page-node-id="dDlIvMkVq3GXFOMPTIcHtH">Pipeline</code> / <code data-page-node-id="wKB3eOamEfJiu9tltuDQFm">StageResult</code></p>
+    <div class="table-wrap" data-page-node-id="5M3kgYYszHLA4AcpzFlpG8"><table data-page-node-id="QZXanoNME3tlAltRdkMs3t">
+      <thead data-page-node-id="f6lnNkDWvBlgLOWDpu27xP"><tr data-page-node-id="HTWa6fiist6OEZ8BBAJmA1"><th data-page-node-id="imEMays6slVBmIS8l43M0r">需求</th><th data-page-node-id="C8zECHAaWGzUy3s6UcbVLs">实现要点</th></tr></thead>
+      <tbody data-page-node-id="KTYdf54x8DIDhuAO2eHLzN">
+        <tr data-page-node-id="ctbgXaNY4OG8zn2EQvQyQm"><td data-page-node-id="TIUcucnxgC8GO7RZlsLDEY">串行执行</td><td data-page-node-id="9ZUrxHtOS2bYupwBH1i6Uz">按序执行，任一失败后续 stage 跳过</td></tr>
+        <tr data-page-node-id="z2xnsTdLPeDSCSgP624dLp"><td data-page-node-id="B8LfPjUfi5Lz9tBuD3zudb">resume_from 断点续跑</td><td data-page-node-id="4HBstLObHOhlaFAYzjhe5A">从指定 stage 继续，跳过已完成 stage</td></tr>
+        <tr data-page-node-id="p2pp2UdT6ln5EByMfUveOC"><td data-page-node-id="arGmauuGxMJ9NrFoWLEBWx">skipped 标记</td><td data-page-node-id="f2ep8BRmQgoiyCcGXONjIH">跳过结果标 <code data-page-node-id="9qFBhaMjORNr5kxludKDuj">"skipped"</code>，不影响最终成功判定</td></tr>
+        <tr data-page-node-id="FQNoKgKq3boKs5gsFVNYFT"><td data-page-node-id="kSqgu747Lqhrwdql7KDt0R">无状态</td><td data-page-node-id="kLozXMap2UYJeZhBYUJHjs">不引入 checkpoint 文件，恢复点由用户指定</td></tr>
+      </tbody>
+    </table></div>
+    <pre data-page-node-id="Y8BQHJ6L6BqhT5DQZN29u2"><code data-page-node-id="P2jCYh4JYrt8NUoPsoDngE"><span class="kw" data-page-node-id="q23lhTQJ6QoqfjWXHWKtuU">class</span> StageResult:
+    status: str  <span class="com" data-page-node-id="cHukBpquU1GBR3QGuTTZLf"># "passed" | "failed" | "skipped"</span>
+    <span class="kw" data-page-node-id="o1EReOGuUeIjQDRqYj2yNx">@property</span> passed / failed / skipped -> bool
+
+<span class="kw" data-page-node-id="xDkx2X4LFBVrZ1BoOrHwt7">class</span> Pipeline:
+    <span class="kw" data-page-node-id="j3kd6SUoyXBCGnlVkgvl5d">def</span> <span class="fn" data-page-node-id="CyFsfmhW0xe6J6iLHGyhO1">add_stage</span>(self, name, fn) -> "Pipeline"
+    <span class="kw" data-page-node-id="UwCqYZb8nvr3pP6p117F3j">def</span> <span class="fn" data-page-node-id="ewr4AcZjSI00ggg4NBAfNZ">stage</span>(self, name) -> Callable           <span class="com" data-page-node-id="0QBCn2C6OENz8UN6OUOqRz"># 装饰器形式</span>
+    <span class="kw" data-page-node-id="uyMEuS873UNieBlyWnzOun">def</span> <span class="fn" data-page-node-id="yQqjJuYz5bACashGe3ZUmf">run</span>(self, resume_from=None, context=None) -> list[StageResult]
+    <span class="kw" data-page-node-id="QcdohOU1VXQ33mztEjycMi">@property</span> success -> bool</code></pre>
+
+    <!-- 14. Usage -->
+    <h2 id="usage" data-page-node-id="O0AqROO27qCyTt5LTEZjsu"><span class="secnum" data-page-node-id="QvGX1MxzEWl5VRJxfoFgaP">14</span>示例用法</h2>
+    <h3 data-page-node-id="9594w4M1DC9GpU4C5V1RiG">conftest.py（ConfigRegistry fixture 绑定）</h3>
+    <pre data-page-node-id="SJoRAPB1uw9DhunMbVWZuQ"><code data-page-node-id="ZXJBGHbB4oP4ZujMc6Gwkb"><span class="kw" data-page-node-id="RQLGEnL40CwQkt9GuzjlZR">from</span> testkit <span class="kw" data-page-node-id="zhzOA4nRQxA7uUOMpOLl4Q">import</span> ConfigRegistry
+
+REGISTRY = ConfigRegistry(<span class="str" data-page-node-id="b1Ip8QNiVcnCvPCGM6SFhI">"config.yaml"</span>)
+REGISTRY.register([<span class="str" data-page-node-id="di1qATTcQIw3PDPiGVgbpj">"common"</span>], CommonConfig, fixture_name=<span class="str" data-page-node-id="pvjIySDsD0i1BAdLJPe5tB">"global_config"</span>)
+
+<span class="kw" data-page-node-id="BbTvqTljF8pDawHTRbt8iQ">@pytest.fixture</span>(scope=<span class="str" data-page-node-id="EXs0TXsEX9QuNRplzXVVJ5">"session"</span>)
+<span class="kw" data-page-node-id="9HaVJiaQQWYRqsKCMzSC9O">def</span> <span class="fn" data-page-node-id="2pdOmuyla7osd7YQG0GLNj">global_config</span>() -> CommonConfig:
+    <span class="kw" data-page-node-id="RKhj3JT5kIN2D6c9yKa89D">return</span> REGISTRY.get(<span class="str" data-page-node-id="Ytd0ddG7K65QnPacB7WgeZ">"global_config"</span>)</code></pre>
+    <h3 data-page-node-id="Qglf8uQCGAkFDfuch7BBh1">综合用例</h3>
+    <pre data-page-node-id="O5IlZououF0b0dwbui8UYj"><code data-page-node-id="mbIX8RAY8LwGcN8SW2CHYk"><span class="kw" data-page-node-id="UghF5HF5p9HIwzYD6IJUAp">def</span> <span class="fn" data-page-node-id="txrPmvTDq7wDXSClyE8LgO">test_create_cluster</span>(global_config):
+    client = HTTPClient(global_config.api_base, auth=TokenAuth(<span class="str" data-page-node-id="Csl90ef2ei7aPBxTiXgr9G">"${TOKEN}"</span>))
+    guard = ConcurrentFixtureGuard(<span class="str" data-page-node-id="w3E15mlvylYnFl547T6jCz">"/tmp/cluster_fixture.json"</span>)
+
+    <span class="kw" data-page-node-id="ElbQdUVR7Mjy9F8jD10YA2">if</span> guard.should_create():
+        <span class="kw" data-page-node-id="vkMn5seA2t4juFus6PCsLD">try</span>:
+            resp = client.post(<span class="str" data-page-node-id="MFfPAXPBKcLEssCFz8AIKO">"/clusters"</span>, json={...})
+            guard.mark_created(metadata={<span class="str" data-page-node-id="5h7CvClvHZGtm1ZfBw6iBH">"id"</span>: resp.json()[<span class="str" data-page-node-id="UvJY6FYXxuanRr0Qxqrnja">"id"</span>]})
+        <span class="kw" data-page-node-id="iwZJKwXGhLhTZMrWuzCoBF">except</span> Exception:
+            guard.mark_failed(); <span class="kw" data-page-node-id="yy3eV5Rc0VLe6OjCqiyyZw">raise</span>
+    <span class="kw" data-page-node-id="NfiJg3BExF81dKeygjheEH">else</span>:
+        <span class="kw" data-page-node-id="v7KCTler8r6ndEkWCB1BQv">assert</span> guard.wait_until_created(
+            <span class="kw" data-page-node-id="6gP6g6z4KvuWz8iFMIVufc">lambda</span>: client.get(<span class="str" data-page-node-id="p1euQHV61u2Oo9eyHP858S">"/clusters"</span>).json()[<span class="str" data-page-node-id="B8djZJjt65khCryhtJ4LlE">"status"</span>] == <span class="str" data-page-node-id="1oGHohIV81Zf7th74FQgBw">"Available"</span>,
+            timeout=<span class="str" data-page-node-id="4EVCswhFqE3GYuD09wYl8c">120</span>,
+        )</code></pre>
+
+    <!-- 15. Verify -->
+    <h2 id="verify" data-page-node-id="kIBgSHEQVQJUmgwWkzf4WJ"><span class="secnum" data-page-node-id="BTfrtfRSgd0CPSuH8ikw7e">15</span>验证结果（Verification Gates）</h2>
+    <div class="table-wrap" data-page-node-id="Iiu3YIzqlG1uTGBojbDP8M"><table data-page-node-id="ukMopA7GwiiJGYvwf9luOS">
+      <thead data-page-node-id="eB6nNaRiBoaRYuEalAIrPE"><tr data-page-node-id="Icu1BFWQdUhOwOFASYlAOO"><th data-page-node-id="XXnPDhn0BJUxgShF20uOgG">门禁</th><th data-page-node-id="L8Aw3Agh3BJZ7yoGx1ZP0Q">命令</th><th data-page-node-id="RerEx5xl8QjYMSJZLHE701">结果</th></tr></thead>
+      <tbody data-page-node-id="q42YJ8x725foJnCqSk5jyT">
+        <tr data-page-node-id="QmP5vxeFFg1MwYVkeClF7L"><td data-page-node-id="04Te2UuWCCd1em3iG8N1xZ">语法编译</td><td data-page-node-id="IIfuVNNKZD4PeCAyzDHAFC"><code data-page-node-id="PEs7qlLtlXSke3Du9B9pdz">python -m py_compile ...</code></td><td data-page-node-id="KdAjIfZyEbyyEd5Qt6VwlY">✅ PY_COMPILE_OK</td></tr>
+        <tr data-page-node-id="wdSL1qVsvcBBX4nV7XrOhJ"><td data-page-node-id="6UVyi89Df1KFMB6CRkdrHx">单元测试</td><td data-page-node-id="9ZgSBInB6xkadsstVciwoN"><code data-page-node-id="xxzd6fM0t0pPOMgZ7KObQB">pytest</code></td><td data-page-node-id="5Bnqhe99bZzksdqC4mizLb">✅ <b data-page-node-id="ljPGKVKXGuANtXMbpWuraV">156 passed</b>（tests/ 139 + examples/ 17）</td></tr>
+        <tr data-page-node-id="G3bj81Krc6IgEIYfC47Ku8"><td data-page-node-id="WXKLXKBUdYZmoFrSgK0FKx">并发运行</td><td data-page-node-id="pzMGb1DvgEGzBWzy29F2WW"><code data-page-node-id="8mACEy7JLgaSZRJ8kKeOi2">pytest -n 4</code></td><td data-page-node-id="tSoO2vAyvsDd3wlnBAF7q3">✅ <b data-page-node-id="ADFETWVUCgYdJiQEq4uEEG">156 passed</b>（4 workers）</td></tr>
+        <tr data-page-node-id="5oBLztauLNZpYYCLDREV4j"><td data-page-node-id="FEc9j3LNpvJwCLiTeU84cS">包导入</td><td data-page-node-id="ulGMARA375ExwDsm3i7cRw"><code data-page-node-id="bfzUFvoSO9cUQaJtsYeqgV">import testkit</code></td><td data-page-node-id="VlRspD5p8WWoLJV7DSAvLT">✅ v0.1.0，27 符号可解析</td></tr>
+      </tbody>
+    </table></div>
+    <p class="muted" data-page-node-id="2AafZQQ1ouPlp9l1Md2yNK">框架包 2,379 行 + 示例 296 行 + 单元测试 1,394 行。</p>
+
+    <footer data-page-node-id="7vdkuiQglqYsnHgcmKsneL">testkit v0.1.0 · 设计文档 · 生成于 2026-09-03</footer>
+  </main>
+</div>
+</body>
+</html>

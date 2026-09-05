@@ -26,15 +26,19 @@ Requires Python ≥ 3.10. To use `testkit` as an importable library from anywher
 pip install -e .
 ```
 
-> Running the test suite does **not** require this — `pyproject.toml` sets
-> `pythonpath = ["."]`, so pytest resolves `testkit` from the project root
-> automatically (no `*.egg-info` needed).
+> The editable install also registers the `pytest11` entry point, so any
+> project that installs `testkit` automatically gains its fixtures and CLI
+> options (no `conftest.py` needed). See the plugin tests below.
 
 ## Quick start
 
 ```python
 from testkit import (
-    HTTPClient, TokenAuth, SSHExecutor, ResourcePool, WaitHelper,
+    HTTPClient,
+    TokenAuth,
+    SSHExecutor,
+    ResourcePool,
+    WaitHelper,
 )
 
 # 1. HTTP client with token auth (proactive + passive refresh)
@@ -74,12 +78,31 @@ testkit/
 ## Running tests
 
 ```bash
-pytest                  # serial
-pytest -n 4             # concurrent (pytest-xdist)
+pip install -e ".[dev]"   # runtime + dev deps, and the plugin entry point
+pytest                    # full suite: library + examples + plugin (171 tests)
+pytest -n auto            # concurrent (pytest-xdist)
 ```
 
-Runtime + dev deps are already installed in the project's isolated venv;
-no `pip install -e .` is needed for `testkit` to be discovered.
+### Coverage gate (85%)
+
+The pytest plugin auto-registers through the `pytest11` entry point, which
+imports `testkit` at startup — *before* coverage starts — so the plugin's
+import-time code would otherwise show as uncovered and drag coverage down.
+Measure library coverage honestly by disabling the plugin for the coverage run,
+then test the plugin separately:
+
+```bash
+pytest -n auto tests/ --cov=testkit --cov-fail-under=85 -p no:testkit --ignore=tests/test_plugin.py
+pytest tests/test_plugin.py    # plugin auto-registration, exercised via pytester
+```
+
+### Lint & type check
+
+```bash
+ruff check .
+ruff format --check .
+mypy testkit
+```
 
 ## Cleaning up
 

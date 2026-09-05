@@ -8,16 +8,17 @@ registered below ``logging.DEBUG``:
 * ``V4`` (7)  — full response body
 * ``V5`` (5)  — trace-level detail
 
-Because these levels are numerically *below* ``DEBUG`` (10), the pytest
-handler must be configured with level ``NOTSET`` (0) so it never performs
-secondary filtering that would otherwise discard them.
+``V4``/``V5`` sit numerically *below* ``DEBUG`` (10) and ``V2`` sits between
+``DEBUG`` and ``INFO``. The pytest handler is therefore configured with level
+``NOTSET`` (0) so it never performs secondary filtering that would discard the
+sub-DEBUG levels.
 """
 
 from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Optional
+from typing import Any, cast
 
 # Custom verbosity levels (lower numeric value = more verbose).
 V5 = 5  # trace
@@ -31,25 +32,25 @@ logging.addLevelName(V2, "V2")
 LOGGER_NAME = "testkit"
 
 
-def _logger_v(level: int, name: str):
-    """Build a bound method that logs at a custom verbosity level."""
+class VerboseLogger(logging.Logger):
+    """A :class:`logging.Logger` with extra ``v2``/``v4``/``v5`` verbosity methods."""
 
-    def _log(self, msg: str, *args: Any, **kwargs: Any) -> None:
-        if self.isEnabledFor(level):
-            self._log(level, msg, args, **kwargs)
+    def v2(self, msg: str, *args: Any, **kwargs: Any) -> None:
+        if self.isEnabledFor(V2):
+            self._log(V2, msg, args, **kwargs)
 
-    _log.__name__ = name
-    _log.__doc__ = f"Log at custom level {name} ({level})."
-    return _log
+    def v4(self, msg: str, *args: Any, **kwargs: Any) -> None:
+        if self.isEnabledFor(V4):
+            self._log(V4, msg, args, **kwargs)
+
+    def v5(self, msg: str, *args: Any, **kwargs: Any) -> None:
+        if self.isEnabledFor(V5):
+            self._log(V5, msg, args, **kwargs)
 
 
-# Attach v2/v4/v5 helpers onto the standard Logger class.
-if not hasattr(logging.Logger, "v2"):
-    logging.Logger.v2 = _logger_v(V2, "v2")  # type: ignore[attr-defined]
-if not hasattr(logging.Logger, "v4"):
-    logging.Logger.v4 = _logger_v(V4, "v4")  # type: ignore[attr-defined]
-if not hasattr(logging.Logger, "v5"):
-    logging.Logger.v5 = _logger_v(V5, "v5")  # type: ignore[attr-defined]
+# Register the subclass so every logger returned by ``logging.getLogger``
+# (including pytest's own loggers) exposes the verbosity helpers.
+logging.setLoggerClass(VerboseLogger)
 
 
 _SENSITIVE_KEYS = (
@@ -78,7 +79,15 @@ _VALUE_PATTERNS = [
         re.IGNORECASE,
     ),
     re.compile(
-        r"(?P<pre>(?:authorization|proxy-authorization)\s*[:=]\s*)(?P<val>(?:bearer|basic|token)\s+)?[^\s,]+",
+        r"(?P<pre>(?:authorization|proxy-authorization)\s*[:=]\s*(?:(?:bearer|basic|token)\s+)?)(?P<val>[^\s,]+)",
+        re.IGNORECASE,
+    ),
+    # Command-line option forms: ``--password 'x'``, ``--token=x``,
+    # ``sshpass -p 'secret'``. Covers bare secrets in command text, not just
+    # the ``key=value`` form. The short ``-p`` form only matches a quoted
+    # value so it never clobbers innocuous ``-p <port>``.
+    re.compile(
+        r"(?P<pre>(?:--(?:password|passwd|pwd|token|secret|api[-_]?key|access[-_]?key)[\s=]+['\"]?|-p\s*['\"]))(?P<val>[^'\"\s]+)",
         re.IGNORECASE,
     ),
 ]
@@ -131,9 +140,9 @@ def get_effective_level(verbosity: int) -> int:
 
 def setup_logging(
     log_verbosity: int = 0,
-    level: Optional[int] = None,
-    fmt: Optional[str] = None,
-) -> logging.Logger:
+    level: int | None = None,
+    fmt: str | None = None,
+) -> VerboseLogger:
     """Configure the framework logger once.
 
     Parameters
@@ -148,12 +157,12 @@ def setup_logging(
 
     Returns
     -------
-    logging.Logger
+    VerboseLogger
         The configured ``testkit`` logger.
     """
     global _configured
 
-    logger = logging.getLogger(LOGGER_NAME)
+    logger = cast(VerboseLogger, logging.getLogger(LOGGER_NAME))
     logger.setLevel(get_effective_level(log_verbosity) if level is None else level)
     logger.propagate = True
 
@@ -163,9 +172,7 @@ def setup_logging(
         # levels V2/V4/V5 through secondary filtering.
         handler.setLevel(logging.NOTSET)
         handler.setFormatter(
-            logging.Formatter(
-                fmt or "%(asctime)s %(levelname)s %(name)s: %(message)s"
-            )
+            logging.Formatter(fmt or "%(asctime)s %(levelname)s %(name)s: %(message)s")
         )
         handler.addFilter(SensitiveDataFilter())
         logger.addHandler(handler)
@@ -174,6 +181,9 @@ def setup_logging(
     return logger
 
 
-def get_logger(name: Optional[str] = None) -> logging.Logger:
+def get_logger(name: str | None = None) -> VerboseLogger:
     """Return a child logger of the framework logger."""
-    return logging.getLogger(f"{LOGGER_NAME}.{name}" if name else LOGGER_NAME)
+    return cast(
+        VerboseLogger,
+        logging.getLogger(f"{LOGGER_NAME}.{name}" if name else LOGGER_NAME),
+    )

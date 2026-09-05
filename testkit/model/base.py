@@ -15,7 +15,7 @@ normally rather than silently reset to a default.
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, Optional
+from typing import Any, ClassVar
 
 
 class Builder:
@@ -29,7 +29,7 @@ class Builder:
     def __init__(self) -> None:
         self._data: dict[str, Any] = {}
 
-    def _with(self, key: str, value: Any) -> "Builder":
+    def _with(self, key: str, value: Any) -> Builder:
         self._data[key] = value
         return self
 
@@ -54,7 +54,7 @@ class BaseModel:
     _aliases: ClassVar[dict[str, str]] = {}
 
     @classmethod
-    def from_api_response(cls, response: dict[str, Any]) -> "BaseModel":
+    def from_api_response(cls, response: dict[str, Any]) -> BaseModel:
         """Build a model instance from an API response dict.
 
         Type errors and other exceptions are propagated normally — they are
@@ -69,7 +69,7 @@ class BaseModel:
         return obj
 
     @staticmethod
-    def _resolve(data: Any, path: str) -> Optional[Any]:
+    def _resolve(data: Any, path: str) -> Any | None:
         current = data
         for part in path.split("."):
             if not isinstance(current, dict) or part not in current:

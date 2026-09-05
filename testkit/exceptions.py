@@ -10,7 +10,7 @@ never lost.
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Optional
+from typing import Any
 
 
 class TestKitError(Exception):
@@ -30,7 +30,7 @@ class TestKitError(Exception):
     def __init__(
         self,
         message: str,
-        original_exception: Optional[BaseException] = None,
+        original_exception: BaseException | None = None,
         **context: Any,
     ) -> None:
         self.message = message
@@ -41,9 +41,7 @@ class TestKitError(Exception):
     def _format(self) -> str:
         parts = [self.message]
         if self.context:
-            rendered = ", ".join(
-                f"{key}={value!r}" for key, value in self.context.items()
-            )
+            rendered = ", ".join(f"{key}={value!r}" for key, value in self.context.items())
             parts.append(f"[{rendered}]")
         return " ".join(parts)
 
@@ -68,10 +66,10 @@ class SSHError(TestKitError):
     def __init__(
         self,
         message: str,
-        command: Optional[str] = None,
-        exit_code: Optional[int] = None,
-        stderr: Optional[str] = None,
-        original_exception: Optional[BaseException] = None,
+        command: str | None = None,
+        exit_code: int | None = None,
+        stderr: str | None = None,
+        original_exception: BaseException | None = None,
         **context: Any,
     ) -> None:
         if command is not None:
@@ -93,9 +91,9 @@ class HTTPError(TestKitError):
     def __init__(
         self,
         message: str,
-        status_code: Optional[int] = None,
+        status_code: int | None = None,
         response_data: Any = None,
-        original_exception: Optional[BaseException] = None,
+        original_exception: BaseException | None = None,
         **context: Any,
     ) -> None:
         if status_code is not None:
@@ -103,6 +101,18 @@ class HTTPError(TestKitError):
         if response_data is not None:
             context.setdefault("response_data", response_data)
         super().__init__(message, original_exception=original_exception, **context)
+
+
+class HttpTimeoutError(HTTPError):
+    """Raised when an HTTP request times out.
+
+    Subclass of :class:`HTTPError` so callers can catch it specifically while
+    broader ``except HTTPError`` handlers keep working.
+    """
+
+
+class NetworkError(HTTPError):
+    """Raised for transport-level network failures (DNS, reset, refused)."""
 
 
 class ResourceNotFoundError(HTTPError):
@@ -118,7 +128,7 @@ class ResourceNotFoundError(HTTPError):
         resource_id: Any,
         status_code: int = 404,
         response_data: Any = None,
-        original_exception: Optional[BaseException] = None,
+        original_exception: BaseException | None = None,
         **context: Any,
     ) -> None:
         message = f"resource not found: {resource_type}={resource_id!r}"

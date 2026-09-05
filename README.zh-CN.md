@@ -26,13 +26,17 @@
 pip install -e .
 ```
 
-> 运行测试套件**不需要**这一步 —— `pyproject.toml` 已配置 `pythonpath = [".""]`，pytest 会自动从项目根解析 `testkit`（无需 `*.egg-info`）。
+> 可编辑安装同时会注册 `pytest11` 入口点，因此任何安装了 `testkit` 的项目都会自动获得其 fixture 与 CLI 选项（无需 `conftest.py`）。详见下方插件测试。
 
 ## 快速开始
 
 ```python
 from testkit import (
-    HTTPClient, TokenAuth, SSHExecutor, ResourcePool, WaitHelper,
+    HTTPClient,
+    TokenAuth,
+    SSHExecutor,
+    ResourcePool,
+    WaitHelper,
 )
 
 # 1. HTTP 客户端（主动 + 被动双 Token 刷新）
@@ -72,11 +76,27 @@ testkit/
 ## 运行测试
 
 ```bash
-pytest                  # 串行
-pytest -n 4             # 并发（pytest-xdist）
+pip install -e ".[dev]"   # 安装运行时 + 开发依赖，并注册插件入口点
+pytest                    # 全量：库 + 示例 + 插件（171 个测试）
+pytest -n auto            # 并发（pytest-xdist）
 ```
 
-运行时与开发依赖已装在项目隔离 venv 中；发现 `testkit` 无需 `pip install -e .`。
+### 覆盖率门禁（85%）
+
+pytest 插件通过 `pytest11` 入口点自动注册，会在 pytest 启动时（coverage 开始**之前**）导入 `testkit`，导致插件的 import 期代码被记为"未覆盖"、拉低覆盖率。诚实地度量库覆盖率，请在覆盖率运行中禁用插件，再单独测试插件：
+
+```bash
+pytest -n auto tests/ --cov=testkit --cov-fail-under=85 -p no:testkit --ignore=tests/test_plugin.py
+pytest tests/test_plugin.py    # 插件自动注册，经 pytester 验证
+```
+
+### 代码检查与类型检查
+
+```bash
+ruff check .
+ruff format --check .
+mypy testkit
+```
 
 ## 清理临时文件
 

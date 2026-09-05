@@ -5,7 +5,6 @@ from __future__ import annotations
 import time
 
 import pytest
-
 from testkit import ConcurrentFixtureGuard
 from testkit.exceptions import FixtureError
 

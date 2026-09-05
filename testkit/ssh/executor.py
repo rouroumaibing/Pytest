@@ -9,8 +9,8 @@ intermediate shell on the jump host.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
+from types import TracebackType
 
 import paramiko
 
@@ -75,15 +75,15 @@ class SSHExecutor:
         self,
         host: str,
         port: int = 22,
-        username: Optional[str] = None,
-        password: Optional[str] = None,
-        key_filename: Optional[str] = None,
+        username: str | None = None,
+        password: str | None = None,
+        key_filename: str | None = None,
         timeout: float = 10.0,
-        jump_host: Optional[str] = None,
+        jump_host: str | None = None,
         jump_port: int = 22,
-        jump_username: Optional[str] = None,
-        jump_password: Optional[str] = None,
-        jump_key_filename: Optional[str] = None,
+        jump_username: str | None = None,
+        jump_password: str | None = None,
+        jump_key_filename: str | None = None,
     ) -> None:
         self.host = host
         self.port = port
@@ -98,15 +98,15 @@ class SSHExecutor:
         self._jump_password = jump_password
         self._jump_key_filename = jump_key_filename
 
-        self._client: Optional[paramiko.SSHClient] = None
-        self._jump_client: Optional[paramiko.SSHClient] = None
-        self._arch: Optional[str] = None
+        self._client: paramiko.SSHClient | None = None
+        self._jump_client: paramiko.SSHClient | None = None
+        self._arch: str | None = None
 
     # -- connection lifecycle -------------------------------------------------
 
     def connect(self) -> None:
         """Establish the (possibly tunnelled) SSH connection."""
-        sock: Optional[paramiko.Channel] = None
+        sock: paramiko.Channel | None = None
         if self._jump_host is not None:
             sock = self._open_jump_tunnel()
 
@@ -138,11 +138,14 @@ class SSHExecutor:
 
     def _open_jump_tunnel(self) -> paramiko.Channel:
         """Open a ``direct-tcpip`` channel through the jump host transport."""
+        jump_host = self._jump_host
+        assert jump_host is not None  # only called when a jump host is configured
+
         jump = paramiko.SSHClient()
         jump.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         try:
             jump.connect(
-                hostname=self._jump_host,
+                hostname=jump_host,
                 port=self._jump_port,
                 username=self._jump_username,
                 password=self._jump_password,
@@ -155,29 +158,31 @@ class SSHExecutor:
             jump.close()
             raise SSHError(
                 "failed to connect to jump host",
-                host=self._jump_host,
+                host=jump_host,
                 port=self._jump_port,
                 original_exception=exc,
             ) from exc
 
         self._jump_client = jump
         transport = jump.get_transport()
+        if transport is None:
+            raise SSHError("jump host transport unavailable", jump_host=jump_host)
         try:
             # direct-tcpip: (destination host/port), (source host/port)
             channel = transport.open_channel(
                 "direct-tcpip",
                 (self.host, self.port),
-                (self._jump_host, self._jump_port),
+                (jump_host, self._jump_port),
                 timeout=self.timeout,
             )
         except Exception as exc:  # noqa: BLE001
             raise SSHError(
                 "failed to open direct-tcpip tunnel",
-                jump_host=self._jump_host,
+                jump_host=jump_host,
                 target=f"{self.host}:{self.port}",
                 original_exception=exc,
             ) from exc
-        logger.v2("opened direct-tcpip tunnel via %s -> %s:%s", self._jump_host, self.host, self.port)
+        logger.v2("opened direct-tcpip tunnel via %s -> %s:%s", jump_host, self.host, self.port)
         return channel
 
     def close(self) -> None:
@@ -189,11 +194,16 @@ class SSHExecutor:
             self._jump_client.close()
             self._jump_client = None
 
-    def __enter__(self) -> "SSHExecutor":
+    def __enter__(self) -> SSHExecutor:
         self.connect()
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         self.close()
 
     # -- command execution ----------------------------------------------------
@@ -207,7 +217,7 @@ class SSHExecutor:
     def execute(
         self,
         command: str,
-        timeout: Optional[float] = None,
+        timeout: float | None = None,
         raise_on_error: bool = False,
     ) -> SSHResult:
         """Execute a command and return a structured result.
@@ -267,7 +277,9 @@ class SSHExecutor:
         result = self.execute("uname -m")
         arch = result.stdout.strip()
         if result.exit_code != 0 or not arch:
-            raise SSHError("failed to detect architecture", command="uname -m", stderr=result.stderr)
+            raise SSHError(
+                "failed to detect architecture", command="uname -m", stderr=result.stderr
+            )
         self._arch = arch
         logger.v2("detected architecture arch=%s", arch)
         return arch

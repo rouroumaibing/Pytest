@@ -10,8 +10,9 @@ files are written; the caller supplies the recovery point explicitly.
 from __future__ import annotations
 
 import inspect
-from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
 
 from testkit.exceptions import PipelineError
 from testkit.logging_setup import get_logger
@@ -29,7 +30,7 @@ class StageResult:
 
     name: str
     status: str
-    error: Optional[BaseException] = None
+    error: BaseException | None = None
     data: Any = None
 
     @property
@@ -47,6 +48,7 @@ class StageResult:
 
 def _call_stage(fn: Callable[..., Any], context: Any) -> Any:
     """Invoke a stage function, passing ``context`` only if it accepts it."""
+    params: Any
     try:
         params = inspect.signature(fn).parameters
     except (TypeError, ValueError):
@@ -65,12 +67,12 @@ class Pipeline:
         Optional pipeline name (for logging).
     """
 
-    def __init__(self, name: Optional[str] = None) -> None:
+    def __init__(self, name: str | None = None) -> None:
         self.name = name or "pipeline"
         self._stages: list[tuple[str, Callable[..., Any]]] = []
         self._results: list[StageResult] = []
 
-    def add_stage(self, name: str, fn: Callable[..., Any]) -> "Pipeline":
+    def add_stage(self, name: str, fn: Callable[..., Any]) -> Pipeline:
         """Register a stage.
 
         Parameters
@@ -101,7 +103,7 @@ class Pipeline:
 
     def run(
         self,
-        resume_from: Optional[str] = None,
+        resume_from: str | None = None,
         context: Any = None,
     ) -> list[StageResult]:
         """Execute stages serially.

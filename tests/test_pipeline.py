@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import pytest
-
 from testkit import Pipeline
 from testkit.exceptions import PipelineError
-from testkit.pipeline.stage import PASSED, FAILED, SKIPPED, StageResult
+from testkit.pipeline.stage import FAILED, PASSED, SKIPPED, StageResult
 
 
 def test_stages_run_in_order():

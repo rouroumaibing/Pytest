@@ -6,16 +6,17 @@ from unittest import mock
 
 import pytest
 import requests
-
 from testkit import HTTPClient, TokenAuth
 from testkit.exceptions import HTTPError, ResourceNotFoundError
 from testkit.http.client import _merge_headers
 
-
 # -- header merge ------------------------------------------------------------
 
+
 def test_merge_headers_later_overrides_earlier():
-    merged = _merge_headers({"Authorization": "Bearer old", "X-A": "1"}, {"authorization": "Bearer new"})
+    merged = _merge_headers(
+        {"Authorization": "Bearer old", "X-A": "1"}, {"authorization": "Bearer new"}
+    )
     assert merged["authorization"] == "Bearer new"
     assert "Authorization" not in merged  # old key removed (case-insensitive)
 
@@ -31,6 +32,7 @@ def test_merge_headers_handles_none():
 
 
 # -- client ----------------------------------------------------------------
+
 
 def _response(status=200, body=None, text="{}"):
     resp = mock.MagicMock(spec=requests.Response)
@@ -112,9 +114,13 @@ def test_passive_refresh_on_401():
 
 def test_404_raises_resource_not_found():
     client = HTTPClient("http://localhost")
-    client._session.request = mock.MagicMock(return_value=_response(status=404, body={"e": "missing"}))
+    client._session.request = mock.MagicMock(
+        return_value=_response(status=404, body={"e": "missing"})
+    )
     with pytest.raises(ResourceNotFoundError) as exc_info:
-        client.get("/clusters/c-9", raise_for_status=True, resource_type="cluster", resource_id="c-9")
+        client.get(
+            "/clusters/c-9", raise_for_status=True, resource_type="cluster", resource_id="c-9"
+        )
     assert exc_info.value.context["resource_type"] == "cluster"
     assert exc_info.value.context["resource_id"] == "c-9"
 
@@ -136,7 +142,9 @@ def test_timeout_maps_to_http_error():
 
 def test_connection_error_maps_to_http_error():
     client = HTTPClient("http://localhost")
-    client._session.request = mock.MagicMock(side_effect=requests.exceptions.ConnectionError("refused"))
+    client._session.request = mock.MagicMock(
+        side_effect=requests.exceptions.ConnectionError("refused")
+    )
     with pytest.raises(HTTPError):
         client.get("/a")
 

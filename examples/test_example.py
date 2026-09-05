@@ -8,7 +8,6 @@ pipeline, cleanup, config registry, exceptions).
 from __future__ import annotations
 
 import pytest
-
 from testkit import (
     BaseModel,
     Builder,
@@ -20,8 +19,8 @@ from testkit import (
     WaitTimeout,
 )
 
-
 # -- ResourcePool ------------------------------------------------------------
+
 
 def test_resource_pool_acquire_release(tmp_path):
     pool = ResourcePool(tmp_path / "pool.yaml")
@@ -54,6 +53,7 @@ def test_resource_pool_status_is_strict(tmp_path):
 
 # -- WaitHelper --------------------------------------------------------------
 
+
 def test_wait_helper_until_true():
     counter = {"n": 0}
 
@@ -72,11 +72,12 @@ def test_wait_helper_timeout():
 
 # -- Builder / BaseModel -----------------------------------------------------
 
+
 class _CreateRequest(Builder):
-    def with_name(self, name: str) -> "_CreateRequest":
+    def with_name(self, name: str) -> _CreateRequest:
         return self._with("name", name)
 
-    def with_replicas(self, replicas: int) -> "_CreateRequest":
+    def with_replicas(self, replicas: int) -> _CreateRequest:
         return self._with("replicas", replicas)
 
 
@@ -100,6 +101,7 @@ def test_from_api_response_mapping():
 
 
 # -- Pipeline ----------------------------------------------------------------
+
 
 def test_pipeline_skips_after_failure():
     order: list[str] = []
@@ -134,6 +136,7 @@ def test_pipeline_resume_from():
 
 # -- ResourceCleanup ---------------------------------------------------------
 
+
 def test_cleanup_runs_lifo():
     order: list[str] = []
     cleanup = ResourceCleanup(retry_count=0, retry_interval=0)
@@ -164,6 +167,7 @@ def test_cleanup_skip_on_failure():
 
 # -- Config registry (uses examples/conftest.py) -----------------------------
 
+
 def test_global_config_fixture(global_config):
     assert global_config.api_base_url == "http://localhost:8080"
     assert global_config.timeout == 30.0
@@ -172,7 +176,6 @@ def test_global_config_fixture(global_config):
 def test_env_overlay_merge(tmp_path, monkeypatch):
     import yaml
     from pydantic import BaseModel as PydBaseModel
-
     from testkit import ConfigRegistry
 
     cfg = tmp_path / "config.yaml"
@@ -201,6 +204,7 @@ def test_env_overlay_merge(tmp_path, monkeypatch):
 
 # -- Exceptions --------------------------------------------------------------
 
+
 def test_resource_not_found_carries_context():
     err = ResourceNotFoundError("cluster", "c-9")
     assert err.context["resource_type"] == "cluster"
@@ -210,12 +214,13 @@ def test_resource_not_found_carries_context():
 
 # -- ConcurrentFixtureGuard --------------------------------------------------
 
+
 def test_fixture_guard_creator_flow(tmp_path):
     from testkit import ConcurrentFixtureGuard
 
     guard = ConcurrentFixtureGuard(tmp_path / "fixture.json")
-    assert guard.should_create() is True      # first caller becomes creator
-    assert guard.should_create() is False     # subsequent callers reuse
+    assert guard.should_create() is True  # first caller becomes creator
+    assert guard.should_create() is False  # subsequent callers reuse
     assert guard.is_creator() is True
 
     guard.mark_created({"cluster": "c-1"})

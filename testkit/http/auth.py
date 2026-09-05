@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import time
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Mapping, Optional
+from collections.abc import Callable, Mapping
+from typing import Any
 
 from testkit.exceptions import HTTPError
 from testkit.logging_setup import get_logger
@@ -34,7 +35,11 @@ class AuthStrategy(ABC):
         return False
 
     def refresh(self) -> None:
-        """Refresh credentials (proactive or passive)."""
+        """Refresh credentials (proactive or passive).
+
+        Default is a no-op; token-based strategies override it.
+        """
+        return None
 
     def should_refresh_on_401(self, response: Any) -> bool:
         """Whether a 401 response should trigger a refresh + retry."""
@@ -63,10 +68,10 @@ class TokenAuth(AuthStrategy):
     def __init__(
         self,
         access_token: str,
-        refresh_token: Optional[str] = None,
-        expires_at: Optional[float] = None,
+        refresh_token: str | None = None,
+        expires_at: float | None = None,
         buffer_time: float = 60.0,
-        token_provider: Optional[Callable[[], Mapping[str, Any]]] = None,
+        token_provider: Callable[[], Mapping[str, Any]] | None = None,
     ) -> None:
         self._access_token = access_token
         self._refresh_token = refresh_token
@@ -78,7 +83,7 @@ class TokenAuth(AuthStrategy):
         return {"Authorization": f"Bearer {self._access_token}"}
 
     @property
-    def expires_at(self) -> Optional[float]:
+    def expires_at(self) -> float | None:
         return self._expires_at
 
     def is_expired(self) -> bool:

@@ -1,6 +1,6 @@
 # Task
 Design a generic Python automated testing framework for systems with "REST API management plane + SSH node plane".
-Zero business couping. Each module can be used independently.
+Zero business coupling. Each module can be used independently.
 
 # Architectural Principles (Core Constraints - Each Must Be Reflected)
 
@@ -20,12 +20,12 @@ Zero business couping. Each module can be used independently.
 - Architecture detection support (uname -m, result cached)
 
 ## 3. HTTP Client
-- Pluggable authentication stategy (Token/Cookie/ApiKey/Custom, unified interface)
+- Pluggable authentication strategy (Token/Cookie/ApiKey/Custom, unified interface)
 - Dual-layer Token refresh: proactive expiration check before sending (buffer time configurable), passive refresh on 401 as fallback
-- Real-time credential reading: re-fetch creadentials from auth strategy before each request, no cached copy from initialization
+- Real-time credential reading: re-fetch credentials from auth strategy before each request, no cached copy from initialization
 - extra_headers: per-request header override/append, does not pollute Session
 - Unified exception hierarchy (distinguish 404/network/timeout/status codes) 
-- **CRITICAL:** Must provide `_request_with_files(method, path, file=None, data=None, extra_headers=None, base_url_override=None)` method for multipart/form-data uploads and custom base_url. Automatically strips Content-Type header (let request set multipart bounddary). Support base_url_override for calling external services.
+- **CRITICAL:** Must provide `_request_with_files(method, path, file=None, data=None, extra_headers=None, base_url_override=None)` method for multipart/form-data uploads and custom base_url. Automatically strips Content-Type header (let request set multipart boundary). Support base_url_override for calling external services.
 
 ## 4. Concurrent Fixture Guard
 - State file (JSON) + FileLock for cross-process coordination
@@ -44,20 +44,20 @@ Zero business couping. Each module can be used independently.
 ## 5. Test Resource Cleanup
 - LIFO stack: later-registered resources are cleaned up first (preserves dependency order)
 - Async resources support pre-cleanup waiting (e.g., wait for cluster deletion to complete)
-- Cleanup failure triggers automatic retry  (retry_count + retry_interval)
+- Cleanup failure triggers automatic retry (retry_count + retry_interval)
 - Cleanup failure does not block subsequent resource recovery
 - skip_cleanup_on_failure: skip cleanup when test fails, preserve state for debugging
 
 ## 6. Configuration Loading
 - YAML multi-environment merge (default + envs.(env) deep merge)
-- ${VAR} placeholder substiution with environment variable values
-- .env file loading injects into os.version (existing environment variables take precedence)
+- ${VAR} placeholder substitution with environment variable values
+- .env file loading injects into os.environ (existing environment variables take precedence)
 - Pydantic model validation (type safety + defaults + required field checks)
 - **CRITICAL:** Must provide a Configuration Registry pattern:
   ```python
     class ConfigRegistry:
       def register(self, yaml_path: list[str], model_cls: type[BaseModel], fixture_name: str = None):
-        """Registry a YAML path -> Pydantic model mapping.
+        """Register a YAML path -> Pydantic model mapping.
         yaml_path: e.g., ["common"] loads common section from dynamic.yaml
         model_cls: Pydantic model to validate the section
         fixture_name: optional pytest fixture name to bind the loaded config
@@ -66,10 +66,10 @@ Zero business couping. Each module can be used independently.
   Usage in conftest.py:
   ```python
   REGISTRY = ConfigRegistry("config.yaml")
-  REGISTRY.registry(["common"], CommonConfig, fixture_name="global_config")
-  REGISTRY.registry(["ssh"], SshConfig, fixture_name="ssh_config")
+  REGISTRY.register(["common"], CommonConfig, fixture_name="global_config")
+  REGISTRY.register(["ssh"], SshConfig, fixture_name="ssh_config")
 
-  @pytest.fixture(sope="sesion")
+  @pytest.fixture(scope="session")
   def global_config() -> CommonConfig:
     return REGISTRY.get("global_config")
 
@@ -79,7 +79,7 @@ Zero business couping. Each module can be used independently.
 - Generic until() method: polls condition function until it returns expected value or timeout
 - Exception tolerance: condition exceptions do not interrupt polling, continue waiting
 - Proactive Token refresh during long polling: prevents Token expiration during polling
-- Readiness judgment is defined by caller (framework does not prese business state machines)
+- Readiness judgment is defined by caller (framework does not preset business state machines)
 
 ## 8. Exception Hierarchy
 - Framework base class -> module exceptions (HTTP/SSH/Pool/Config/Fixture)
@@ -87,14 +87,14 @@ Zero business couping. Each module can be used independently.
 - Base class carries original_exception to preserve exception chain
 - 404 automatically converted to ResourceNotFoundError (with resource_type + resource_id)
 
-## 9.Log Verbosity
+## 9. Log Verbosity
 - Inspired by k8s --v=N pattern, log_verbosity is the single control point
 - Custom levels: V2 (API summary), V4 (full response body), V5 (trace-level)
 - pytest handler level set to NOTSET (0), no secondary filtering, otherwise custom levels below DEBUG would be discarded
 - Automatic sensitive data sanitization (passwords/Tokens/keys replaced with ***)
 
 ## 10. Data Model Layer
-- Builder pattern: chainable construction of complex request bodies (with_xxx returens self), build() outputs standard dict
+- Builder pattern: chainable construction of complex request bodies (with_xxx returns self), build() outputs standard dict
 - from_api_response pattern: automatic mapping from API response dict to object attributes + convenience properties (e.g., id = metadata.uid)
 - Model does not hold Client references (Client-Model separation)
 - Exceptions are not swallowed: type errors in from_api_response are raised normally, not silently reset
@@ -105,7 +105,7 @@ Zero business couping. Each module can be used independently.
 - Skipped stage result marked as "skipped", do not affect final success judgment
 - Stateless design: no checkpoint files introduced, user manually specifies recovery point
 
-## 12. General Contraints
+## 12. General Constraints
 - Zero business coupling: no preset business concepts like "node/cluster/organization"
 - Complete type annotations, complete docstrings
 
@@ -116,3 +116,69 @@ pytest, pytest-xdist, requests, paramiko, pydantic, PyYAML, filelock
 1. Output directory structure and core class signatures first
 2. Implement code after design confirmation
 3. Provide conftest.py example + configuration file example + TestCase example
+
+---
+
+# Release-Ready Framework Library
+
+> Sections 13–18 below extend the framework above to make it pip-installable and release-ready.
+
+---
+
+## 13. Package Identity
+
+- Include an empty `py.typed` file **inside the package directory** (not project root) for PEP 561 compliance. Declare it via `[tool.setuptools.package-data]`
+- Version from a single source `testkit/_version.py`; `pyproject.toml` reads it via `dynamic = ["version"]`.
+- Classifiers include `Framework :: Pytest` and `Typing :: Typed`.
+- Top-level files: `LICENSE` (matching pyproject.toml), `CHANGELOG.md` (Keep-a-Changelog), `CONTRIBUTING.md`, `README.md` with CI/PyPI/version badges.
+
+---
+
+## 14. Pytest Plugin (CRITICAL Constraints)
+
+The plugin must auto-register via the `pytest11` entry point. Every constraint below is non-negotiable:
+
+- **CRITICAL:** Entry point group name must be `pytest11` exactly.
+- **CRITICAL:** All registered CLI options must use the `--testkit-` prefix to avoid user namespace collisions (e.g. `--testkit-verbosity`, `--testkit-resume-from`, `--testkit-skip-cleanup-on-failure`, `--testkit-env`)
+- **CRITICAL:** All auto-registered session/function fixtures must use the `testkit_` prefix (e.g. `testkit_cleanup`, `testkit_wait_helper`, `testkit_fixture_guard`).
+- **CRITICAL:** Test failure detection must be automatic - implement `pytest_runtest_makereport` with `hookwrapper=True` and `yield` pattern to mark test failure on the item, so `ResourceCleanup.skip_cleanup_on_failure` works without any user code. Users must NOT need to wire failure detection themselves.
+- **CRITICAL:** All custom markers must be declared in `[tool.pytest.ini_options].markers` to suppress `PytestUnknownMark` warnings.
+
+---
+
+## 15. CI & Release (CRITICAL Constraints)
+
+- **CRITICAL:** PyPI publishing must use **Trusted Publisher (OIDC)**, not username/password or static tokens. The publish workflow requires `permissions: id-token: write`.
+- **CRITICAL:** CI must run a matrix across Python > 3.10 on linux + windows + macOS
+- **CRITICAL:** Coverage gate at 85% minimum ( `fail_under = 85`).
+- Pre-commit hooks: ruff (lint + format), mypy (strict), basic pre-commit-hooks.
+- Publish workflow triggers on `v*` tags; builds with `python -m build`, checks with `twine check`, uploads via `pypa/gh-action-pypi-publish`.
+
+---
+
+## 16. Documentation (Industry Standard)
+
+- MkDocs Material site under `docs/`.
+- Four sections: Quickstart (install -> hello world in 30 lines), User Guide (one page per core module from test.md), API Reference (auto-generated via mkdocstrings), Cookbook (common patterns).
+- Every code block must be copy-paste runnable.
+
+---
+
+## 17. Known Deviations to Fix Before v0.1.0
+
+- **HTTP exception subclassing:** add `HttpTimeoutError(HTTPError)` and `NetworkError(HTTPError)`. `_send()` must raise the specific subclass, not base `HTTPError`.
+- **SSH command-body sanitization:**  extend sanitization to cover bare secret strings in command text (e.g. `sshpass -p 'secret'` must have the secret masked), not just `key=value` form.
+
+---
+## 18. Release Checklist
+
+All must pass before tagging v0.1.0:
+
+- [] `pip install -e .[dev]` succeeds from clean venv
+- [] `ruff check .` + `ruff format --check .` - zero issues
+- [] `mypy testkit/` - zero errors (strict mode)
+- [] `pytest -n auto tests/` - all pass on Python > 3.10
+- [] `pytest --cov=testkit --cov-fail-under=85` - coverage gate passes
+- [] `python -m build` produces valid sdist + wheel; `twine check dist/*` clean
+- [] `testkit/py.typed` is inside the installed wheel
+- [] A fresh project that only `pip install testkit` (no conftest) gets `testkit_cleanup` / `testkit_wait_helper` fixtures automatically

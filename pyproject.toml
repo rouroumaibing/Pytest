@@ -4,11 +4,26 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "testkit"
-version = "0.1.0"
+dynamic = ["version"]
 description = "A generic, business-agnostic Python test framework for systems with a REST API management plane and an SSH node plane."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
+keywords = ["pytest", "testing", "test-framework", "ssh", "rest-api", "resource-pool"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Framework :: Pytest",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Testing",
+    "Typing :: Typed",
+]
 dependencies = [
     "requests>=2.28",
     "paramiko>=3.0",
@@ -21,13 +36,72 @@ dependencies = [
 dev = [
     "pytest>=7.4",
     "pytest-xdist>=3.3",
+    "pytest-cov>=4.1",
+    "ruff>=0.4",
+    "mypy>=1.8",
+    "build>=1.0",
+    "twine>=5.0",
+    "mkdocs>=1.5",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.24",
+    "pre-commit>=3.5",
+    "types-requests>=2.31",
+    "types-paramiko>=3.4",
+    "types-PyYAML>=6.0",
 ]
+
+[project.entry-points.pytest11]
+testkit = "testkit.plugin"
+
+[tool.setuptools]
+# Version is read dynamically from testkit/_version.py (single source of truth).
+[tool.setuptools.dynamic]
+version = { attr = "testkit._version.__version__" }
 
 [tool.setuptools.packages.find]
 include = ["testkit*"]
+
+[tool.setuptools.package-data]
+testkit = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "examples"]
 python_files = ["test_*.py"]
 pythonpath = ["."]
 addopts = "-ra --basetemp=.pytest_tmp"
+markers = [
+    "testkit: marks a test as a testkit-framework integration",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["testkit", "tests", "examples"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+files = ["testkit"]
+
+# pydantic v2 ships highly dynamic typing that some mypy builds cannot
+# fully analyze; skip its internals so type-checking stays green.
+[[tool.mypy.overrides]]
+module = ["pydantic", "pydantic.*", "pydantic_core", "pydantic_core.*"]
+follow_imports = "skip"
+
+[tool.coverage.run]
+source = ["testkit"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]

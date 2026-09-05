@@ -26,6 +26,7 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 .cache/
+site/
 
 # --- 运行时状态 / 日志(可再生) ---
 .state/

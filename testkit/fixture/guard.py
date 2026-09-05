@@ -13,8 +13,9 @@ import json
 import os
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, cast
 
 from filelock import FileLock
 
@@ -50,7 +51,7 @@ class ConcurrentFixtureGuard:
         state_path: str | Path,
         timeout: float = 300.0,
         poll_interval: float = 1.0,
-        exclusive_lock_path: Optional[str | Path] = None,
+        exclusive_lock_path: str | Path | None = None,
     ) -> None:
         self._state_path = Path(state_path)
         self._timeout = timeout
@@ -63,11 +64,11 @@ class ConcurrentFixtureGuard:
 
     # -- state file helpers ---------------------------------------------------
 
-    def _read(self) -> Optional[dict[str, Any]]:
+    def _read(self) -> dict[str, Any] | None:
         if not self._state_path.exists():
             return None
         with self._state_path.open("r", encoding="utf-8") as fh:
-            return json.load(fh)
+            return cast(dict[str, Any], json.load(fh))
 
     def _write(self, state: dict[str, Any]) -> None:
         tmp = self._state_path.with_suffix(self._state_path.suffix + ".tmp")
@@ -81,7 +82,7 @@ class ConcurrentFixtureGuard:
 
     # -- core API -------------------------------------------------------------
 
-    def should_create(self, metadata: Optional[dict[str, Any]] = None) -> bool:
+    def should_create(self, metadata: dict[str, Any] | None = None) -> bool:
         """Decide whether this process should create the shared fixture.
 
         The first caller returns ``True`` and writes a ``creating`` state;
@@ -116,9 +117,7 @@ class ConcurrentFixtureGuard:
             # state == creating
             created_at = float(state.get("created_at", now))
             if now - created_at > self._timeout:
-                logger.v2(
-                    "fixture creation timed out (%.1fs); taking over", now - created_at
-                )
+                logger.v2("fixture creation timed out (%.1fs); taking over", now - created_at)
                 self._write(
                     {
                         "state": _STATE_CREATING,
@@ -130,7 +129,7 @@ class ConcurrentFixtureGuard:
                 return True
             return False
 
-    def mark_created(self, metadata: Optional[dict[str, Any]] = None) -> None:
+    def mark_created(self, metadata: dict[str, Any] | None = None) -> None:
         """Mark the fixture as successfully created (creator only)."""
         metadata = metadata or {}
         with self._lock:
@@ -142,7 +141,7 @@ class ConcurrentFixtureGuard:
             self._write(state)
         logger.v2("fixture marked created by %s", self._process_id)
 
-    def mark_failed(self, metadata: Optional[dict[str, Any]] = None) -> None:
+    def mark_failed(self, metadata: dict[str, Any] | None = None) -> None:
         """Mark creation as failed (creator only).
 
         The state file is removed so a waiting peer may claim creation.
@@ -166,7 +165,7 @@ class ConcurrentFixtureGuard:
         self,
         check_fn: Callable[[], bool],
         timeout: float,
-        poll_interval: Optional[float] = None,
+        poll_interval: float | None = None,
     ) -> bool:
         """Poll a user-defined readiness check until it succeeds or times out.
 
@@ -184,7 +183,9 @@ class ConcurrentFixtureGuard:
         while time.monotonic() < deadline:
             state = self._read()
             if state is not None and state.get("state") == _STATE_FAILED:
-                raise FixtureError("fixture creator reported failure", metadata=state.get("metadata"))
+                raise FixtureError(
+                    "fixture creator reported failure", metadata=state.get("metadata")
+                )
             try:
                 if check_fn():
                     return True
@@ -211,6 +212,6 @@ class ConcurrentFixtureGuard:
 
     # -- exclusive critical section ------------------------------------------
 
-    def exclusive(self):
+    def exclusive(self) -> FileLock:
         """Context manager serializing a critical section across processes."""
         return self._exclusive_lock

@@ -9,8 +9,7 @@ from __future__ import annotations
 import os
 
 import pytest
-from pydantic import BaseModel, Field
-
+from pydantic import BaseModel
 from testkit import ConfigRegistry
 
 

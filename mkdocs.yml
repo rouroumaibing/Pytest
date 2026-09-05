@@ -1,0 +1,67 @@
+site_name: testkit
+site_description: A generic, business-agnostic Python test framework
+repo_url: https://github.com/example/testkit
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - content.code.annotate
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+# The docs/ directory also holds development artifacts (prompts, HTML export)
+# that are not part of the published site.
+exclude_docs: |
+  prompt.txt
+  new_testcase_pipeline.txt
+  DESIGN.md
+  DESIGN.html
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            show_source: true
+            heading_level: 2
+            show_root_heading: true
+
+markdown_extensions:
+  - admonition
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.details
+
+nav:
+  - Home: index.md
+  - Quickstart: quickstart.md
+  - User Guide:
+      - HTTP Client: user-guide/http-client.md
+      - SSH Executor: user-guide/ssh-executor.md
+      - Resource Pool: user-guide/resource-pool.md
+      - Fixture Guard: user-guide/fixture-guard.md
+      - Resource Cleanup: user-guide/resource-cleanup.md
+      - Config Registry: user-guide/config-registry.md
+      - WaitHelper: user-guide/wait-helper.md
+      - Pipeline: user-guide/pipeline.md
+      - Data Model: user-guide/data-model.md
+      - Logging: user-guide/logging.md
+  - API Reference: api-reference.md
+  - Cookbook: cookbook.md

@@ -28,6 +28,7 @@ DIR_PATTERNS=(
   ".ruff_cache"
   ".cache"
   "htmlcov"
+  "site"
   ".tox"
   "build"
   "dist"

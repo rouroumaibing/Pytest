@@ -6,10 +6,10 @@ from testkit import BaseModel, Builder
 
 
 class _CreateRequest(Builder):
-    def with_name(self, name: str) -> "_CreateRequest":
+    def with_name(self, name: str) -> _CreateRequest:
         return self._with("name", name)
 
-    def with_replicas(self, replicas: int) -> "_CreateRequest":
+    def with_replicas(self, replicas: int) -> _CreateRequest:
         return self._with("replicas", replicas)
 
 

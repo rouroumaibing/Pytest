@@ -10,7 +10,8 @@ caller.
 from __future__ import annotations
 
 import time
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 from testkit.logging_setup import get_logger
 
@@ -47,7 +48,7 @@ class WaitHelper:
         self,
         timeout: float = 60.0,
         interval: float = 1.0,
-        refresh_fn: Optional[Callable[[], None]] = None,
+        refresh_fn: Callable[[], None] | None = None,
         refresh_interval: float = 300.0,
     ) -> None:
         self._timeout = timeout
@@ -59,8 +60,8 @@ class WaitHelper:
         self,
         condition: Callable[[], Any],
         expected: Any = _MISSING,
-        timeout: Optional[float] = None,
-        interval: Optional[float] = None,
+        timeout: float | None = None,
+        interval: float | None = None,
     ) -> Any:
         """Poll ``condition`` until it returns *expected* (or a truthy value).
 
@@ -120,8 +121,8 @@ class WaitHelper:
     def until_true(
         self,
         condition: Callable[[], Any],
-        timeout: Optional[float] = None,
-        interval: Optional[float] = None,
+        timeout: float | None = None,
+        interval: float | None = None,
     ) -> Any:
         """Convenience wrapper: wait until ``condition`` returns a truthy value."""
         return self.until(condition, timeout=timeout, interval=interval)

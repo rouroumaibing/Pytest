@@ -3,17 +3,18 @@
 from __future__ import annotations
 
 import pytest
-
+from testkit.exceptions import (
+    CleanupError,
+    ConfigError,
+    FixtureError,
+    HTTPError,
+    PipelineError,
+    PoolError,
+    ResourceNotFoundError,
+    SSHError,
+)
 from testkit.exceptions import (
     TestKitError as BaseError,  # aliased so pytest does not collect it as a test class
-    ConfigError,
-    PoolError,
-    SSHError,
-    HTTPError,
-    ResourceNotFoundError,
-    FixtureError,
-    CleanupError,
-    PipelineError,
 )
 
 

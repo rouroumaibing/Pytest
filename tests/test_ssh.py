@@ -5,7 +5,6 @@ from __future__ import annotations
 from unittest import mock
 
 import pytest
-
 from testkit import SSHExecutor, SSHResult
 from testkit.exceptions import SSHError
 
@@ -85,8 +84,9 @@ def test_execute_auto_connects_when_no_client():
 
 def test_execute_does_not_reconnect_when_client_present():
     executor = SSHExecutor("host", username="root")
-    with mock.patch.object(executor, "connect") as connect, mock.patch.object(
-        executor, "_client", create=True, new=_fake_client()
+    with (
+        mock.patch.object(executor, "connect") as connect,
+        mock.patch.object(executor, "_client", create=True, new=_fake_client()),
     ):
         # _client already set, so connect should NOT be called.
         executor.execute("uname -m")
@@ -122,9 +122,10 @@ def test_connect_failure_raises_ssh_error():
 
 def test_context_manager_closes():
     executor = SSHExecutor("host", username="root")
-    with mock.patch.object(executor, "connect") as connect, mock.patch.object(
-        executor, "close"
-    ) as close:
+    with (
+        mock.patch.object(executor, "connect") as connect,
+        mock.patch.object(executor, "close") as close,
+    ):
         with executor:
             pass
         connect.assert_called_once()

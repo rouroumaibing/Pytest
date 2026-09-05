@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Mapping
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, ValidationError
@@ -37,11 +38,7 @@ def _deep_merge(base: dict[str, Any], override: Mapping[str, Any]) -> dict[str, 
     """
     result = deepcopy(base)
     for key, value in override.items():
-        if (
-            key in result
-            and isinstance(result[key], dict)
-            and isinstance(value, Mapping)
-        ):
+        if key in result and isinstance(result[key], dict) and isinstance(value, Mapping):
             result[key] = _deep_merge(result[key], value)
         else:
             result[key] = deepcopy(value)
@@ -51,7 +48,8 @@ def _deep_merge(base: dict[str, Any], override: Mapping[str, Any]) -> dict[str, 
 def substitute_placeholders(value: Any, env: Mapping[str, str]) -> Any:
     """Recursively replace ``${VAR}`` / ``${VAR:-default}`` with env values."""
     if isinstance(value, str):
-        def _repl(match: re.Match) -> str:
+
+        def _repl(match: re.Match[str]) -> str:
             name, default = match.group(1), match.group(2)
             if name in env:
                 return env[name]
@@ -106,19 +104,19 @@ class ConfigRegistry:
         variable, then to ``"default"`` (no per-env overlay).
     """
 
-    def __init__(self, yaml_path: str | Path, env: Optional[str] = None) -> None:
+    def __init__(self, yaml_path: str | Path, env: str | None = None) -> None:
         self._yaml_path = Path(yaml_path)
         self._env = env or os.environ.get(_ENV_OVERRIDE) or "default"
         self._entries: dict[str, tuple[list[str], type[BaseModel]]] = {}
         self._models: dict[str, BaseModel] = {}
-        self._raw: Optional[dict[str, Any]] = None
+        self._raw: dict[str, Any] | None = None
 
     def register(
         self,
         yaml_path: list[str],
         model_cls: type[BaseModel],
-        fixture_name: Optional[str] = None,
-    ) -> "ConfigRegistry":
+        fixture_name: str | None = None,
+    ) -> ConfigRegistry:
         """Register a YAML section path to a Pydantic model.
 
         Parameters
@@ -139,10 +137,6 @@ class ConfigRegistry:
         self._entries[name] = (list(yaml_path), model_cls)
         logger.v2("registered config section %r -> %s", yaml_path, model_cls.__name__)
         return self
-
-    # Alias kept for compatibility with the prompt's usage example, which
-    # spells the method ``registry``.
-    registry = register
 
     def _load_raw(self) -> dict[str, Any]:
         """Load, merge and substitute placeholders in the YAML document."""

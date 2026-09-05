@@ -10,33 +10,33 @@ coupling: there are no preset concepts such as "cluster", "node", or
 "organization" anywhere in the package.
 """
 
+from testkit.cleanup.resource_cleanup import ResourceCleanup
+from testkit.config.loader import ConfigRegistry
 from testkit.exceptions import (
-    TestKitError,
+    CleanupError,
     ConfigError,
-    PoolError,
+    FixtureError,
     HTTPError,
+    PipelineError,
+    PoolError,
     ResourceNotFoundError,
     SSHError,
-    FixtureError,
-    CleanupError,
-    PipelineError,
+    TestKitError,
 )
-from testkit.config.loader import ConfigRegistry
-from testkit.pool.resource_pool import ResourcePool
-from testkit.ssh.executor import SSHExecutor, SSHResult
+from testkit.fixture.guard import ConcurrentFixtureGuard
 from testkit.http.auth import (
-    AuthStrategy,
-    TokenAuth,
-    CookieAuth,
     ApiKeyAuth,
+    AuthStrategy,
+    CookieAuth,
     CustomAuth,
+    TokenAuth,
 )
 from testkit.http.client import HTTPClient
-from testkit.fixture.guard import ConcurrentFixtureGuard
-from testkit.cleanup.resource_cleanup import ResourceCleanup
-from testkit.utils.wait import WaitHelper, WaitTimeout
 from testkit.model.base import BaseModel, Builder
 from testkit.pipeline.stage import Pipeline, StageResult
+from testkit.pool.resource_pool import ResourcePool
+from testkit.ssh.executor import SSHExecutor, SSHResult
+from testkit.utils.wait import WaitHelper, WaitTimeout
 
 __all__ = [
     # exceptions
@@ -44,6 +44,8 @@ __all__ = [
     "ConfigError",
     "PoolError",
     "HTTPError",
+    "HttpTimeoutError",
+    "NetworkError",
     "ResourceNotFoundError",
     "SSHError",
     "FixtureError",

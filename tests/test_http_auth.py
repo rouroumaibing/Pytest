@@ -5,13 +5,12 @@ from __future__ import annotations
 import time
 
 import pytest
-
 from testkit import (
-    AuthStrategy,
-    TokenAuth,
-    CookieAuth,
     ApiKeyAuth,
+    AuthStrategy,
+    CookieAuth,
     CustomAuth,
+    TokenAuth,
 )
 from testkit.exceptions import HTTPError
 

@@ -241,6 +241,7 @@ REGISTRY = ConfigRegistry("config.yaml")
 REGISTRY.register(["common"], CommonConfig, fixture_name="global_config")
 REGISTRY.register(["ssh"], SshConfig, fixture_name="ssh_config")
 
+
 @pytest.fixture(scope="session")
 def global_config() -> CommonConfig:
     return REGISTRY.get("global_config")
@@ -398,12 +399,15 @@ class Pipeline:
 from pydantic import BaseModel
 from testkit import ConfigRegistry
 
+
 class CommonConfig(BaseModel):
     api_base: str
     timeout: int = 30
 
+
 REGISTRY = ConfigRegistry("config.yaml")
 REGISTRY.register(["common"], CommonConfig, fixture_name="global_config")
+
 
 @pytest.fixture(scope="session")
 def global_config() -> CommonConfig:
@@ -452,11 +456,18 @@ def test_create_cluster(global_config, ssh_config):
 | 门禁 | 命令 | 结果 |
 |------|------|------|
 | 语法编译 | `python -m py_compile testkit/**/*.py tests/**/*.py` | ✅ PY_COMPILE_OK |
-| 单元测试 | `pytest` | ✅ **156 passed**（tests/ 139 + examples/ 17） |
-| 并发运行 | `pytest -n 4` | ✅ **156 passed**（4 workers） |
-| 包导入 | `import testkit` | ✅ version 0.1.0，27 符号可解析 |
+| Lint | `ruff check .` + `ruff format --check .` | ✅ 0 issues / 59 files formatted |
+| 类型检查 | `mypy testkit`（strict） | ✅ Success（24 source files） |
+| 单元测试 | `pytest` | ✅ **171 passed**（tests/ 154 + examples/ 17） |
+| 并发运行 | `pytest -n auto` | ✅ **171 passed** |
+| 覆盖率门禁 | `pytest -n auto tests/ --cov=testkit --cov-fail-under=85 -p no:testkit` | ✅ **87.4%**（≥ 85%） |
+| 插件自动注册 | `pytest tests/test_plugin.py`（pytester） | ✅ **7 passed** |
+| 打包 | `python -m build` + `twine check dist/*` | ✅ sdist + wheel，PASSED |
+| 包导入 | `import testkit` | ✅ version 0.1.0 |
 
-> 说明：本项目为纯 Python 框架，验证门禁为 `py_compile` + `pytest`（含 xdist 并发）；不涉及 `go build / vet / test` 或 `tsc`（Go/TS gate 仅适用于 sounds-great-ai 主仓库）。
+> 说明：本项目为纯 Python 框架，验证门禁为 `py_compile` + `ruff` + `mypy` + `pytest`（含 xdist 并发）+ 覆盖率 + 打包校验；不涉及 `go build / vet / test` 或 `tsc`（Go/TS gate 仅适用于 sounds-great-ai 主仓库）。
+>
+> 覆盖率门禁为何带 `-p no:testkit`：pytest 插件经 `pytest11` 入口点自动注册，会在 coverage 启动前 import `testkit`，导致插件 import 期代码被记为未覆盖。因此覆盖率运行禁用插件自动加载、插件行为由 `tests/test_plugin.py`（pytester）单独验证。
 
 ---
 

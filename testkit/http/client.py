@@ -15,18 +15,23 @@ Key behaviours:
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 import requests
 
-from testkit.exceptions import HTTPError, ResourceNotFoundError
+from testkit.exceptions import (
+    HTTPError,
+    HttpTimeoutError,
+    NetworkError,
+    ResourceNotFoundError,
+)
 from testkit.http.auth import AuthStrategy
 from testkit.logging_setup import get_logger
 
 logger = get_logger("http.client")
 
 
-def _merge_headers(*header_maps: Optional[dict[str, str]]) -> dict[str, str]:
+def _merge_headers(*header_maps: dict[str, str] | None) -> dict[str, str]:
     """Merge header mappings case-insensitively; later maps override earlier."""
     merged: dict[str, str] = {}
     index: dict[str, str] = {}
@@ -64,8 +69,8 @@ class HTTPClient:
     def __init__(
         self,
         base_url: str,
-        auth: Optional[AuthStrategy] = None,
-        session: Optional[requests.Session] = None,
+        auth: AuthStrategy | None = None,
+        session: requests.Session | None = None,
         timeout: float = 30.0,
         verify: bool = True,
         retry_on_401: bool = True,
@@ -77,7 +82,7 @@ class HTTPClient:
         self._retry_on_401 = retry_on_401
         self._session = session or requests.Session()
 
-    def _url(self, path: str, base_url_override: Optional[str] = None) -> str:
+    def _url(self, path: str, base_url_override: str | None = None) -> str:
         base = (base_url_override or self.base_url).rstrip("/")
         return f"{base}/{path.lstrip('/')}"
 
@@ -88,16 +93,16 @@ class HTTPClient:
         method: str,
         path: str,
         *,
-        params: Optional[dict[str, Any]] = None,
+        params: dict[str, Any] | None = None,
         json: Any = None,
         data: Any = None,
-        headers: Optional[dict[str, str]] = None,
-        extra_headers: Optional[dict[str, str]] = None,
-        timeout: Optional[float] = None,
+        headers: dict[str, str] | None = None,
+        extra_headers: dict[str, str] | None = None,
+        timeout: float | None = None,
         raise_for_status: bool = False,
-        resource_type: Optional[str] = None,
+        resource_type: str | None = None,
         resource_id: Any = None,
-        base_url_override: Optional[str] = None,
+        base_url_override: str | None = None,
         **kwargs: Any,
     ) -> requests.Response:
         """Perform an HTTP request.
@@ -147,16 +152,16 @@ class HTTPClient:
             self.auth.refresh()
             request_headers = _merge_headers(self.auth.get_headers(), headers, extra_headers)
 
-        send_kwargs: dict[str, Any] = dict(
-            method=method.upper(),
-            url=url,
-            params=params,
-            json=json,
-            data=data,
-            headers=request_headers,
-            timeout=timeout or self.timeout,
-            verify=self.verify,
-        )
+        send_kwargs: dict[str, Any] = {
+            "method": method.upper(),
+            "url": url,
+            "params": params,
+            "json": json,
+            "data": data,
+            "headers": request_headers,
+            "timeout": timeout or self.timeout,
+            "verify": self.verify,
+        }
         send_kwargs.update(kwargs)
 
         response = self._send(send_kwargs, path)
@@ -170,9 +175,7 @@ class HTTPClient:
         ):
             logger.v2("received 401; refreshing credentials and retrying once")
             self.auth.refresh()
-            send_kwargs["headers"] = _merge_headers(
-                self.auth.get_headers(), headers, extra_headers
-            )
+            send_kwargs["headers"] = _merge_headers(self.auth.get_headers(), headers, extra_headers)
             response = self._send(send_kwargs, path)
 
         logger.v2("http %s %s -> %s", method.upper(), path, response.status_code)
@@ -186,9 +189,9 @@ class HTTPClient:
         try:
             return self._session.request(**send_kwargs)
         except requests.exceptions.Timeout as exc:
-            raise HTTPError("request timed out", path=path, original_exception=exc) from exc
+            raise HttpTimeoutError("request timed out", path=path, original_exception=exc) from exc
         except requests.exceptions.ConnectionError as exc:
-            raise HTTPError("network error", path=path, original_exception=exc) from exc
+            raise NetworkError("network error", path=path, original_exception=exc) from exc
         except requests.exceptions.RequestException as exc:
             raise HTTPError("request failed", path=path, original_exception=exc) from exc
 
@@ -196,7 +199,7 @@ class HTTPClient:
     def _raise_for_status(
         response: requests.Response,
         path: str,
-        resource_type: Optional[str],
+        resource_type: str | None,
         resource_id: Any,
     ) -> None:
         status = response.status_code
@@ -244,9 +247,9 @@ class HTTPClient:
         method: str,
         path: str,
         file: Any = None,
-        data: Optional[dict[str, Any]] = None,
-        extra_headers: Optional[dict[str, str]] = None,
-        base_url_override: Optional[str] = None,
+        data: dict[str, Any] | None = None,
+        extra_headers: dict[str, str] | None = None,
+        base_url_override: str | None = None,
     ) -> requests.Response:
         """Perform a ``multipart/form-data`` upload request.
 

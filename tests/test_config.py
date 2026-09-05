@@ -7,7 +7,6 @@ import os
 import pytest
 import yaml
 from pydantic import BaseModel
-
 from testkit import ConfigRegistry
 from testkit.exceptions import ConfigError
 
@@ -51,17 +50,14 @@ def test_register_and_get_default(tmp_path):
     assert model.timeout == 30.0
 
 
-def test_register_is_chainable_and_aliased(tmp_path):
+def test_register_is_chainable(tmp_path):
     path = _write(tmp_path, _base_doc())
     registry = ConfigRegistry(str(path))
     registry.register(["common"], CommonConfig, fixture_name="c").register(
         ["ssh"], SshConfig, fixture_name="s"
     )
-    # 'registry' is an alias of 'register' (prompt's spelling).
-    registry.registry(["ssh"], SshConfig, fixture_name="s2")
     assert registry.get("c").api_base_url == "http://default"
     assert registry.get("s").host == "1.2.3.4"
-    assert registry.get("s2").host == "1.2.3.4"
 
 
 def test_fixture_name_defaults_to_class_name(tmp_path):

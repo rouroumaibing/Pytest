@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 import yaml
-
 from testkit import ResourcePool
 from testkit.exceptions import PoolError
 
@@ -77,7 +76,8 @@ def test_release_only_matching_ids(tmp_path):
     pool = ResourcePool(tmp_path / "pool.yaml")
     pool.add({"id": "r1"})
     pool.add({"id": "r2"})
-    both = pool.acquire(count=2)
+    allocated = pool.acquire(count=2)
+    assert len(allocated) == 2
     pool.release([{"id": "r1"}])
     statuses = {r["id"]: r["status"] for r in pool.list()}
     assert statuses["r1"] == "free"

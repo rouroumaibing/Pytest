@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import os
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 import yaml
 from filelock import FileLock
@@ -118,9 +119,9 @@ class ResourcePool:
     def acquire(
         self,
         count: int = 1,
-        predicate: Optional[Callable[[dict[str, Any]], bool]] = None,
-        retries: Optional[int] = None,
-        interval: Optional[float] = None,
+        predicate: Callable[[dict[str, Any]], bool] | None = None,
+        retries: int | None = None,
+        interval: float | None = None,
     ) -> list[dict[str, Any]]:
         """Allocate up to *count* free resources, retrying if needed.
 

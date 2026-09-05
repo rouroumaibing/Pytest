@@ -8,8 +8,9 @@ single cleanup failure never blocks the recovery of remaining resources.
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any
 
 from testkit.logging_setup import get_logger
 
@@ -22,7 +23,7 @@ class CleanupResult:
 
     name: str
     success: bool
-    error: Optional[BaseException] = None
+    error: BaseException | None = None
 
     def __bool__(self) -> bool:
         return self.success
@@ -31,7 +32,7 @@ class CleanupResult:
 @dataclass
 class _Entry:
     cleanup_fn: Callable[[], Any]
-    wait_fn: Optional[Callable[[], bool]]
+    wait_fn: Callable[[], bool] | None
     name: str
     timeout: float
 
@@ -72,10 +73,10 @@ class ResourceCleanup:
     def register(
         self,
         cleanup_fn: Callable[[], Any],
-        wait_fn: Optional[Callable[[], bool]] = None,
-        name: Optional[str] = None,
+        wait_fn: Callable[[], bool] | None = None,
+        name: str | None = None,
         timeout: float = 300.0,
-    ) -> "ResourceCleanup":
+    ) -> ResourceCleanup:
         """Register a cleanup callback (LIFO).
 
         Parameters
@@ -102,7 +103,7 @@ class ResourceCleanup:
             _Entry(
                 cleanup_fn=cleanup_fn,
                 wait_fn=wait_fn,
-                name=name or getattr(cleanup_fn, "__name__", "cleanup"),
+                name=name or str(getattr(cleanup_fn, "__name__", "cleanup")),
                 timeout=timeout,
             )
         )
@@ -119,8 +120,8 @@ class ResourceCleanup:
                     )
                 time.sleep(min(1.0, self._retry_interval or 0.5))
 
-    def _run_with_retry(self, entry: _Entry) -> Optional[BaseException]:
-        last_exc: Optional[BaseException] = None
+    def _run_with_retry(self, entry: _Entry) -> BaseException | None:
+        last_exc: BaseException | None = None
         for attempt in range(self._retry_count + 1):
             try:
                 self._run_once(entry)
@@ -128,8 +129,13 @@ class ResourceCleanup:
                 return None
             except Exception as exc:  # noqa: BLE001 - cleanup must never raise
                 last_exc = exc
-                logger.v4("cleanup attempt %d/%d failed for %s: %s",
-                          attempt + 1, self._retry_count + 1, entry.name, exc)
+                logger.v4(
+                    "cleanup attempt %d/%d failed for %s: %s",
+                    attempt + 1,
+                    self._retry_count + 1,
+                    entry.name,
+                    exc,
+                )
                 if attempt < self._retry_count:
                     time.sleep(self._retry_interval)
         return last_exc

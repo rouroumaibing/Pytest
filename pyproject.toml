@@ -30,6 +30,7 @@ dependencies = [
     "pydantic>=2.0",
     "PyYAML>=6.0",
     "filelock>=3.9",
+    "kubernetes>=28.1",
 ]
 
 [project.optional-dependencies]

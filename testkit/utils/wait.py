@@ -13,6 +13,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from testkit.exceptions import ResourceNotFoundError
 from testkit.logging_setup import get_logger
 
 logger = get_logger("utils.wait")
@@ -126,3 +127,42 @@ class WaitHelper:
     ) -> Any:
         """Convenience wrapper: wait until ``condition`` returns a truthy value."""
         return self.until(condition, timeout=timeout, interval=interval)
+
+    def wait_until_deleted(
+        self,
+        check_exists: Callable[[], bool],
+        timeout: float | None = None,
+    ) -> bool:
+        """Poll until a resource no longer exists (proven by business usages).
+
+        Parameters
+        ----------
+        check_exists:
+            Callable returning ``True`` while the resource still exists. A
+            raised :class:`~testkit.exceptions.ResourceNotFoundError` (or any
+            exception carrying ``status_code == 404``) also counts as deleted.
+        timeout:
+            Override the default timeout.
+
+        Returns
+        -------
+        bool
+            ``True`` if the resource is gone within *timeout*, ``False`` if it
+            is still present when the timeout elapses.
+        """
+
+        def _deleted() -> bool:
+            try:
+                return not check_exists()
+            except ResourceNotFoundError:
+                return True
+            except Exception as exc:  # noqa: BLE001 - 404 also means deleted
+                if getattr(exc, "status_code", None) == 404:
+                    return True
+                raise
+
+        try:
+            self.until(_deleted, expected=True, timeout=timeout)
+            return True
+        except WaitTimeout:
+            return False

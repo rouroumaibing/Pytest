@@ -67,19 +67,50 @@ class TokenAuth(AuthStrategy):
 
     def __init__(
         self,
-        access_token: str,
+        access_token: str | None = None,
         refresh_token: str | None = None,
         expires_at: float | None = None,
         buffer_time: float = 60.0,
         token_provider: Callable[[], Mapping[str, Any]] | None = None,
     ) -> None:
+        # NOTE: ``access_token`` may be ``None`` at construction. No network IO
+        # happens here — the token is fetched lazily on the first
+        # :meth:`get_headers` call (via ``token_provider``) once the environment
+        # has been provisioned.
         self._access_token = access_token
         self._refresh_token = refresh_token
         self._expires_at = expires_at
         self._buffer_time = buffer_time
         self._token_provider = token_provider
 
+    def _ensure_token(self) -> None:
+        """Fetch the token on first use when none was supplied at construction."""
+        if self._access_token is not None:
+            return
+        if self._token_provider is None:
+            raise HTTPError(
+                "access_token is None and no token_provider configured",
+                status_code=401,
+            )
+        self._fetch_via_provider()
+
+    def _fetch_via_provider(self) -> None:
+        assert self._token_provider is not None
+        new = self._token_provider()
+        if "access_token" not in new:
+            raise HTTPError(
+                "token_provider returned no access_token",
+                status_code=401,
+            )
+        self._access_token = new["access_token"]
+        if "refresh_token" in new:
+            self._refresh_token = new["refresh_token"]
+        if "expires_at" in new:
+            self._expires_at = new["expires_at"]
+        logger.v2("token fetched via provider")
+
     def get_headers(self) -> dict[str, str]:
+        self._ensure_token()
         return {"Authorization": f"Bearer {self._access_token}"}
 
     @property
@@ -97,17 +128,7 @@ class TokenAuth(AuthStrategy):
                 "token expired and no token_provider configured",
                 status_code=401,
             )
-        new = self._token_provider()
-        if "access_token" not in new:
-            raise HTTPError(
-                "token_provider returned no access_token",
-                status_code=401,
-            )
-        self._access_token = new["access_token"]
-        if "refresh_token" in new:
-            self._refresh_token = new["refresh_token"]
-        if "expires_at" in new:
-            self._expires_at = new["expires_at"]
+        self._fetch_via_provider()
         logger.v2("token refreshed proactively")
 
 

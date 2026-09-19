@@ -170,3 +170,28 @@ class ResourceCleanup:
 
     def __len__(self) -> int:
         return len(self._stack)
+
+    @property
+    def pending_count(self) -> int:
+        """Number of registered cleanups still pending (alias of ``len``)."""
+        return len(self._stack)
+
+    def remove(self, resource_id: str) -> None:
+        """Drop a registered cleanup entry by its ``name``.
+
+        Use when a test already tore a resource down inline, so
+        :meth:`cleanup` does not double-clean it. Matches by the ``name``
+        supplied (or defaulted) at :meth:`register`.
+
+        Parameters
+        ----------
+        resource_id:
+            The ``name`` of the entry to remove.
+        """
+        before = len(self._stack)
+        self._stack = [e for e in self._stack if e.name != resource_id]
+        removed = before - len(self._stack)
+        if removed:
+            logger.v2("removed %d cleanup entry(ies) named %r", removed, resource_id)
+        else:
+            logger.v4("remove: no cleanup entry named %r", resource_id)

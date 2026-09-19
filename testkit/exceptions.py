@@ -27,6 +27,12 @@ class TestKitError(Exception):
         appended to the message as ``key=value`` for quick diagnosis.
     """
 
+    # Context keys that must never be promoted to instance attributes: they
+    # collide with attributes the exception manages itself.
+    _RESERVED_ATTRS: frozenset[str] = frozenset(
+        {"message", "context", "original_exception", "args"}
+    )
+
     def __init__(
         self,
         message: str,
@@ -36,6 +42,13 @@ class TestKitError(Exception):
         self.message = message
         self.original_exception = original_exception
         self.context: dict[str, Any] = dict(context)
+        # Expose every context entry as a direct attribute so callers can read
+        # ``err.status_code`` / ``err.resource_id`` / ``err.exit_code`` without
+        # digging into ``err.context``. Both views stay in sync; names that
+        # would shadow framework attributes or methods are skipped.
+        for key, value in self.context.items():
+            if key not in self._RESERVED_ATTRS and not hasattr(type(self), key):
+                setattr(self, key, value)
         super().__init__(self._format())
 
     def _format(self) -> str:
@@ -58,6 +71,10 @@ class ConfigError(TestKitError):
 
 class PoolError(TestKitError):
     """Raised for resource-pool allocation/release/persistence failures."""
+
+
+class K8sError(TestKitError):
+    """Raised for Kubernetes direct-client failures (API server or exec)."""
 
 
 class SSHError(TestKitError):

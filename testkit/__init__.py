@@ -17,6 +17,7 @@ from testkit.exceptions import (
     ConfigError,
     FixtureError,
     HTTPError,
+    K8sError,
     PipelineError,
     PoolError,
     ResourceNotFoundError,
@@ -32,10 +33,19 @@ from testkit.http.auth import (
     TokenAuth,
 )
 from testkit.http.client import HTTPClient
+from testkit.k8s import K8sClient, to_mib
+from testkit.logging_setup import (
+    add_file_handler,
+    get_logging_info,
+    remove_file_handler,
+    set_level,
+    set_verbosity,
+)
 from testkit.model.base import BaseModel, Builder
 from testkit.pipeline.stage import Pipeline, StageResult
 from testkit.pool.resource_pool import ResourcePool
 from testkit.ssh.executor import SSHExecutor, SSHResult
+from testkit.utils.parallel import parallel_map
 from testkit.utils.wait import WaitHelper, WaitTimeout
 
 __all__ = [
@@ -47,6 +57,7 @@ __all__ = [
     "HttpTimeoutError",
     "NetworkError",
     "ResourceNotFoundError",
+    "K8sError",
     "SSHError",
     "FixtureError",
     "CleanupError",
@@ -65,6 +76,9 @@ __all__ = [
     "ApiKeyAuth",
     "CustomAuth",
     "HTTPClient",
+    # k8s
+    "K8sClient",
+    "to_mib",
     # fixture
     "ConcurrentFixtureGuard",
     # cleanup
@@ -72,6 +86,13 @@ __all__ = [
     # utils
     "WaitHelper",
     "WaitTimeout",
+    "parallel_map",
+    # logging runtime
+    "set_level",
+    "set_verbosity",
+    "add_file_handler",
+    "remove_file_handler",
+    "get_logging_info",
     # model
     "BaseModel",
     "Builder",

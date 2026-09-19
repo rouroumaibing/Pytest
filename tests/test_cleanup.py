@@ -102,3 +102,37 @@ def test_cleanup_clears_stack():
     cleanup.register(lambda: None)
     cleanup.cleanup()
     assert len(cleanup) == 0
+
+
+# -- ported from test_cleanup_full.py / test_cleanup_enhance.py (unique behaviours) --
+
+
+def test_remove_guard_against_double_free():
+    cleanup = ResourceCleanup(retry_count=0, retry_interval=0)
+    cleanup.register(lambda: None, name="a")
+    cleanup.remove("a")
+    cleanup.remove("a")  # removing again is a no-op, not an error
+    assert len(cleanup) == 0
+
+
+def test_pending_count_and_len():
+    cleanup = ResourceCleanup(retry_count=0, retry_interval=0)
+    cleanup.register(lambda: None, name="a")
+    cleanup.register(lambda: None, name="b")
+    assert len(cleanup) == 2
+    assert cleanup.pending_count == 2
+
+
+def test_cleanup_isolates_raising_callbacks():
+    cleanup = ResourceCleanup(retry_count=0, retry_interval=0)
+
+    def boom():
+        raise RuntimeError("fail")
+
+    cleanup.register(boom, name="bad")
+    cleanup.register(lambda: None, name="good")
+    results = cleanup.cleanup()
+    assert results[0].name == "good"
+    assert results[0].success is True
+    assert results[1].name == "bad"
+    assert results[1].success is False

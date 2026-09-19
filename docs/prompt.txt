@@ -110,7 +110,7 @@ Zero business coupling. Each module can be used independently.
 - Complete type annotations, complete docstrings
 
 # Tech Stack
-pytest, pytest-xdist, requests, paramiko, pydantic, PyYAML, filelock
+pytest, pytest-xdist, requests, paramiko, pydantic, PyYAML, filelock, kubernetes
 
 # Output Requirements
 1. Output directory structure and core class signatures first
@@ -178,7 +178,130 @@ All must pass before tagging v0.1.0:
 - [] `ruff check .` + `ruff format --check .` - zero issues
 - [] `mypy testkit/` - zero errors (strict mode)
 - [] `pytest -n auto tests/` - all pass on Python > 3.10
-- [] `pytest --cov=testkit --cov-fail-under=85` - coverage gate passes
+- [] `coverage run -m pytest && coverage report` - coverage gate passes (fail_under = 85)
 - [] `python -m build` produces valid sdist + wheel; `twine check dist/*` clean
 - [] `testkit/py.typed` is inside the installed wheel
 - [] A fresh project that only `pip install testkit` (no conftest) gets `testkit_cleanup` / `testkit_wait_helper` fixtures automatically
+
+---
+
+# Extended Capabilities
+
+> Sections 19–28 continue the framework with direct Kubernetes cluster access, richer SSH file transfer and connection handling, generic parallel execution, and production-grade runtime controls.
+
+---
+
+## 19. Kubernetes Direct Client
+
+A thin wrapper over the official `kubernetes` client library for direct cluster access via kubeconfig (complementary to the HTTP management-plane client).
+
+- **CRITICAL:** Depends on `kubernetes` (add to dependencies). Not to be confused with the HTTP `Client` - this talks directly to the cluster API server.
+- `from_kubeconfig(kubeconfig_dict)` classmethod for auth; `close()` to release the API client.
+- CRUD helpers for core resources (apps/core/networking groups): Deployment / StatefulSet / DaemonSet / Pod /Ingress / ConfigMap / Secret / Namespace - each with list/get/create/delete where applicable.
+- `exec_in_pod(namespace, pod_name, command, timeout)` using `kubernetes.stream.stream`.
+- Errors wrapper in the framework exception hierarchy.
+
+---
+
+## 20. SSH Enhancements (transfer / reconnect / verify / find)
+
+Extend the SSH executor beyond plain command execution with the file and connection capabilities a real SSH test flow requires.
+
+- **File transfer (SFTP):** `scp_via_jump` - stream file from the current host to a target reachable only through the current SSH connection (chunked read/write, 64 KiB chunks, never load the whole file into memory)
+- **Double-hop transfer:** `scp_via_double_jump(source_ssh, local_path, target_ip, remote_path, ...)` - read from a *source* SSH host, forward to a target through the current connection (the first server(public ip) -> the second server(private ip) -> the third server(private ip) scenario).
+- **File search:** `find_package(pattern)` - glob match a remote path via SFTP `listdir` + `fnmatch`, return first match.
+- **File existence:** `file_exist(remote_path)` -> bool (via `ls` command).
+- **Connection verification:** `verify()` - execute a sentinel echo and assert the expected token appears (used as the standard connectivity gate after every (re)connect in multi-stage flows).
+- **Auto-reconnect:** detect inactive transport; reconnect once automatically and retry the failed command. Applies to both `execute` and file operations.
+- **Keepalive:** `transport.set_keepalive(60)` on every connection to survive long-running operations.
+- **Host key policy:** configurable `reject` / `warn` / `auto` (AutoAddPolicy), not hard-coded.
+- **Raw client access:** `raw` property exposing the underlying `paramiko.SSHClient` for advanced operations.
+
+---
+
+## 21. Parallel Execution Utility
+
+A generic ordered-parallel map for executing independent tasks and collecting result/errors.
+
+- `parallel_map(func, items, max_workers=5, timeout=None, on_error="collect", desc="tasks", error_handler=None) -> list`
+- **Preserve order:** result list follows `items` order; skipped/failed tasks are omitted (caller decides how to interpret missing slots).
+- `on_error="collect"` - per-task exceptions are logged (or converted via `error_handler(item, exc)`); execution continues. `on_error="raise"` - first exception aborts the batch.
+- Based on `concurrent.futures.ThreadPoolExecutor`.
+
+---
+
+## 22. Kubernetes Resource Quantity Utility
+
+- `to_mib(value) -> int`: normalize K8s quantity string (`2048Mi`, `2Gi`, `1024Ki`, raw bytes) to integer MiB. Returns 0 for `None`.
+
+---
+
+## 23. Logging Enhancements
+
+Extend the existing verbosity-based logging with production runtime controls.
+
+- **Rotating file handler:** optional `RotatingFileHandler` (configurable `maxBytes`, default 10 MiB, and `backupCount`, default 5). The pytest handler stays NOTSET as before.
+- **paramiko suppression:** `paramiko` protocol logs default to WARNING and are only surfaced at maximum verbosity (v5) to avoid log flooding.
+- **Runtime adjustment API** (class-level, framework logger):
+  - `set_level(level_str)`
+  - `set_verbosity(v)` - map 0-5 to the existing `--v=N` scheme
+  - `add_file_handler(filename)` / `remove_file_handler(filename)` - idempotent
+  - `get_logging_info()` - snapshot dict of current level/handlers
+- Sensitive-data sanitization applied to all handlers.
+
+---
+
+## 24. Config Template Generation
+
+Generate a `dynamic.yaml`-style template from the registered Pydantic models (reverse of validation).
+
+- **From registered models:** walk each `ConfigRegistry` registration, render every model field into a template dict:
+  - default / `default_factory` values used as-is
+  - otherwise a placeholder by type (`<string>`, `<int>`, `<float>`, `<bool>`); nested `BaseModel` fields recurse.
+- **Filter by used fixtures:** when a set of used pytest fixture names is provided, include only sections whose registered `fixture_name` intersects the set; sections with no fixture name are always included (global config)
+- `dump_template(path)` - write the merged template as YAML.
+
+---
+
+## 25. ResourceCleanup State Queries (minimal)
+
+Two small state-query helpers on the cleanup context (already has `register` / `cleanup` / `__len__`).
+
+- `remove(resource_id) -> None` - drop a registered cleanup entry so a test that cleaned up inline does not double-clean. Generic: matches the entry by the user-supplied `name` used at `register`.
+- `pending_count -> int` - number of entries still to be cleaned (alias of `__len__`).
+
+---
+
+## 26. AuthStrategy Lazy Token
+
+Make `TokenAuth` constructible before credentials exist (no network IO at construction), so fixtures can build clients while the environment is still being provisioned.
+
+- `TokenAuth(access_token: str | None = None, ...)` - token may be `None` at construction.
+- **CRITICAL:** The token is fetched on the *first* `get_headers()` call (via the `token_provider` when `access_token` is `None`), never at `__init__`.
+- `is_expired()` / proactive refresh-buffer check and the existing `should_refresh_on_401(response)` hook are unchanged.
+- 400-with-"token is expired" detection is intentionally NOT built in: that error text is backend-specific, and the existing `should_refresh_on_401(response)` override point already lets users extend refresh triggers to 400 responses.
+
+---
+
+## 27. wait_until_deleted Convenience
+
+A small generic helper on the polling utility, proven by three business usages (`cluster_deleted` / `addon_deleted` - all "poll existence until absent").
+
+- `wait_until_deleted(check_exists, timeout=None) -> bool` - poll `check_exists` (callable returning whether the resource still exists); a raised `ResourceNotFoundError` (or equivalent 404 signal) count as "deleted". Built on the existing `until()` with its exception tolerance.
+- All other readiness logic stays caller-defined (no business state machines in the framework).
+
+---
+
+## 28. Verification Checklist (Additions)
+
+All must pass before release:
+
+- [] `kubernetes` dependency is declared; `K8sClient.from_kubeconfig` + each resource CRUD compiles and is unit-tested with mocked API objects
+- [] SSH file transfer (`scp_via_jump`), double-hop, `find_package`, `file_exist`, `verify`, auto-reconnect, keepalive, host-key policies are covered by unit tests (mocked transport)
+- [] `parallel_map` preserves order and honors both `on_error` modes (tested with a raising task) 
+- [] `to_mib` handles Gi/Mi/Ki/raw/None
+- [] Rotating file handler + paramiko suppression + `set_verbosity`/`add_file_handler`/`remove_file_handler` tested
+- [] Config template generation produces a valid YAML file loadable back through `ConfigRegistry`
+- [] `ResourceCleanup.remove` prevents double-cleanup (registered then removed -> not executed at `cleanup`)
+- [] `TokenAuth` constructs with `access_token=None` and performs zero network IO until the first `get_headers()` call
+- [] `wait_until_deleted` treats raised `ResourceNotFoundError` as deleted and times out otherwise 

@@ -31,4 +31,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI (Python ≥ 3.10 × Linux / Windows / macOS) and Trusted Publisher (OIDC)
   release workflow.
 
+## [Unreleased]
+
+### Added
+
+- `K8sClient`: thin direct-cluster client (kubeconfig auth) over the official
+  `kubernetes` library, with CRUD helpers for Deployment / StatefulSet /
+  DaemonSet / Pod / Ingress / ConfigMap / Secret / Namespace and
+  `exec_in_pod` (§19). `kubernetes` is a required dependency, imported lazily.
+- `to_mib` quantity helper normalizing K8s quantity strings to MiB (§22).
+- `SSHExecutor` enhancements: `scp_via_jump` (chunked SFTP), `scp_via_double_jump`
+  (three-hop transfer), `find_package`, `file_exist`, `verify`, auto-reconnect
+  with one retry, `keepalive` (default 60s), configurable `host_key_policy`
+  (`reject` / `warn` / `auto`), and a `raw` client property (§20).
+- `parallel_map` ordered parallel utility with `on_error="collect" | "raise"`
+  and an `error_handler` hook (§21).
+- Logging runtime controls: `RotatingFileHandler` support plus `set_level`,
+  `set_verbosity`, idempotent `add_file_handler` / `remove_file_handler`, and
+  `get_logging_info`; `paramiko` protocol logs stay at WARNING except at V5 (§23).
+- `ConfigRegistry.generate_template` / `dump_template` producing a `dynamic.yaml`-style
+  template from registered Pydantic models, filterable by used fixtures (§24).
+- `ResourceCleanup.remove(name)` and `pending_count` for state queries (§25).
+- `TokenAuth` now constructible with `access_token=None`; the token is fetched
+  lazily on the first `get_headers()` call (§26).
+- `WaitHelper.wait_until_deleted` treating `ResourceNotFoundError` / 404 as deleted (§27).
+
+### Fixed
+
+- Framework exceptions mirror every `context` entry onto a direct attribute, so
+  `err.status_code` / `err.resource_id` / `err.exit_code` read as expected
+  alongside `err.context`. This also makes `WaitHelper.wait_until_deleted`
+  honour the "equivalent 404 signal" case for framework errors (§27).
+- `parallel_map` no longer drops successful `None` results — only failed or
+  skipped slots are omitted (§21).
+
 [0.1.0]: https://github.com/example/testkit/releases/tag/v0.1.0
+

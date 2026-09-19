@@ -25,7 +25,14 @@ mypy testkit/          # strict type checking
 1. `ruff check .` and `ruff format --check .` — zero issues
 2. `mypy testkit/` — zero errors (strict mode)
 3. `pytest -n auto tests/` — all tests pass on Python ≥ 3.10
-4. `pytest --cov=testkit --cov-fail-under=85` — coverage ≥ 85%
+4. `coverage run -m pytest && coverage report` — coverage ≥ 85%
+
+> Measure coverage with `coverage run -m pytest`, not `pytest --cov`. This
+> package publishes a `pytest11` entry point, so `testkit` is imported during
+> pytest start-up — *before* `pytest-cov` begins tracing. The plugin's own
+> import-time lines (imports, class bodies, `def` lines) would then be reported
+> as uncovered, understating coverage by ~25 points. `coverage run` starts
+> tracing first, so the numbers are correct.
 
 ## Conventions
 

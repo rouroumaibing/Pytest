@@ -17,7 +17,9 @@ sub-DEBUG levels.
 from __future__ import annotations
 
 import logging
+import os
 import re
+from logging.handlers import RotatingFileHandler
 from typing import Any, cast
 
 # Custom verbosity levels (lower numeric value = more verbose).
@@ -187,3 +189,129 @@ def get_logger(name: str | None = None) -> VerboseLogger:
         VerboseLogger,
         logging.getLogger(f"{LOGGER_NAME}.{name}" if name else LOGGER_NAME),
     )
+
+
+# Module-level logger used by the runtime-adjustment API below.
+logger = get_logger()
+
+
+# -- runtime adjustment API (framework logger) -------------------------------
+
+
+def _framework_logger() -> VerboseLogger:
+    return cast(VerboseLogger, logging.getLogger(LOGGER_NAME))
+
+
+def _suppress_paramiko(effective_level: int) -> None:
+    """Keep ``paramiko`` protocol logs quiet except at maximum verbosity (V5).
+
+    paramiko logs connection/protocol detail at DEBUG/INFO. We pin its logger
+    to WARNING unless the framework is at V5, where we open it up so the trace
+    is visible instead of flooding normal runs.
+    """
+    paramiko_logger = logging.getLogger("paramiko")
+    if effective_level <= V5:
+        paramiko_logger.setLevel(V5)
+    else:
+        paramiko_logger.setLevel(logging.WARNING)
+
+
+def set_level(level: str | int) -> None:
+    """Set the framework logger level by name (``"DEBUG"``) or integer.
+
+    Raises
+    ------
+    ValueError
+        If *level* is neither a known level name nor an integer.
+    """
+    if isinstance(level, str):
+        resolved = logging.getLevelName(level.upper())
+        if not isinstance(resolved, int):
+            raise ValueError(f"unknown log level: {level!r}")
+    elif isinstance(level, int):
+        resolved = level
+    else:
+        raise ValueError(f"level must be str or int, got {type(level).__name__}")
+    _framework_logger().setLevel(resolved)
+    _suppress_paramiko(resolved)
+    logger.v2("log level set to %s", logging.getLevelName(resolved))
+
+
+def set_verbosity(verbosity: int) -> None:
+    """Map a 0-5 verbosity to the ``--v=N`` scheme and apply it.
+
+    Equivalent to calling :func:`setup_logging` with the matching verbosity,
+    but without re-adding handlers.
+    """
+    level = get_effective_level(verbosity)
+    _framework_logger().setLevel(level)
+    _suppress_paramiko(level)
+    logger.v2("log verbosity set to %s -> level %s", verbosity, logging.getLevelName(level))
+
+
+def add_file_handler(
+    filename: str | os.PathLike[str],
+    max_bytes: int = 10 * 1024 * 1024,
+    backup_count: int = 5,
+) -> None:
+    """Attach an idempotent rotating file handler to the framework logger.
+
+    The handler writes rotated logs (default 10 MiB, 5 backups) and sanitizes
+    sensitive data, exactly like the console handler. Re-adding the same file
+    is a no-op.
+    """
+    fw_logger = _framework_logger()
+    target = os.path.abspath(os.fspath(filename))
+    for handler in fw_logger.handlers:
+        if (
+            isinstance(handler, RotatingFileHandler)
+            and os.path.abspath(handler.baseFilename) == target
+        ):
+            logger.v2("file handler already attached: %s", target)
+            return
+    handler = RotatingFileHandler(target, maxBytes=max_bytes, backupCount=backup_count)
+    # NOTSET so sub-DEBUG verbosity levels are never secondarily filtered.
+    handler.setLevel(logging.NOTSET)
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    handler.addFilter(SensitiveDataFilter())
+    fw_logger.addHandler(handler)
+    logger.v2(
+        "file handler attached: %s (%dMiB x%d)", target, max_bytes // 1024 // 1024, backup_count
+    )
+
+
+def remove_file_handler(filename: str | os.PathLike[str]) -> bool:
+    """Remove a previously attached rotating file handler (idempotent).
+
+    Returns ``True`` if a matching handler was removed, ``False`` otherwise.
+    """
+    fw_logger = _framework_logger()
+    target = os.path.abspath(os.fspath(filename))
+    removed = False
+    for handler in list(fw_logger.handlers):
+        if (
+            isinstance(handler, RotatingFileHandler)
+            and os.path.abspath(handler.baseFilename) == target
+        ):
+            fw_logger.removeHandler(handler)
+            handler.close()
+            removed = True
+            logger.v2("file handler removed: %s", target)
+    return removed
+
+
+def get_logging_info() -> dict[str, Any]:
+    """Return a snapshot of the current logging configuration."""
+    fw_logger = _framework_logger()
+    return {
+        "level": logging.getLevelName(fw_logger.level),
+        "level_no": fw_logger.level,
+        "handlers": [
+            {
+                "type": type(h).__name__,
+                "level": logging.getLevelName(h.level),
+                "filename": getattr(h, "baseFilename", None),
+            }
+            for h in fw_logger.handlers
+        ],
+    }

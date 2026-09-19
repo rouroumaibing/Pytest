@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import re
+import typing
 from collections.abc import Mapping
 from copy import deepcopy
 from pathlib import Path
@@ -20,6 +21,7 @@ from typing import Any
 
 import yaml
 from pydantic import BaseModel, ValidationError
+from pydantic_core import PydanticUndefined
 
 from testkit.exceptions import ConfigError
 from testkit.logging_setup import get_logger
@@ -92,6 +94,66 @@ def load_env_file(path: str | Path = ".env") -> dict[str, str]:
     return injected
 
 
+# -- template generation helpers ---------------------------------------------
+
+_PLACEHOLDERS = {
+    str: "<string>",
+    int: "<int>",
+    float: "<float>",
+    bool: "<bool>",
+}
+
+
+def _unwrap_optional(annotation: Any) -> Any:
+    """Strip ``Optional``/``Union`` to the first non-None argument."""
+    origin = typing.get_origin(annotation)
+    if origin is typing.Union:
+        non_none = [a for a in typing.get_args(annotation) if a is not type(None)]
+        if non_none:
+            return non_none[0]
+    return annotation
+
+
+def _scalar_placeholder(annotation: Any) -> str:
+    unwrapped = _unwrap_optional(annotation)
+    if unwrapped in _PLACEHOLDERS:
+        return _PLACEHOLDERS[unwrapped]
+    return "<value>"
+
+
+def _annotation_to_template(annotation: Any) -> Any:
+    """Render a single field's type into a template placeholder or sub-dict."""
+    unwrapped = _unwrap_optional(annotation)
+    if isinstance(unwrapped, type) and issubclass(unwrapped, BaseModel):
+        return _model_to_template(unwrapped)
+    return _scalar_placeholder(unwrapped)
+
+
+def _model_to_template(model_cls: type[BaseModel]) -> dict[str, Any]:
+    """Recursively render a Pydantic model into a template dict."""
+    result: dict[str, Any] = {}
+    for field_name, field in model_cls.model_fields.items():
+        if field.default_factory is not None and field.default_factory is not PydanticUndefined:
+            try:
+                result[field_name] = field.default_factory()
+                continue
+            except Exception:  # noqa: BLE001 - fall back to a placeholder
+                pass
+        if field.default is not PydanticUndefined:
+            result[field_name] = field.default
+        else:
+            result[field_name] = _annotation_to_template(field.annotation)
+    return result
+
+
+def _set_path(root: dict[str, Any], path: list[str], value: Any) -> None:
+    """Assign *value* at the nested *path* inside *root* (creating dicts)."""
+    cur = root
+    for part in path[:-1]:
+        cur = cur.setdefault(part, {})
+    cur[path[-1]] = value
+
+
 class ConfigRegistry:
     """Registry of ``YAML section path -> Pydantic model`` bindings.
 
@@ -107,7 +169,11 @@ class ConfigRegistry:
     def __init__(self, yaml_path: str | Path, env: str | None = None) -> None:
         self._yaml_path = Path(yaml_path)
         self._env = env or os.environ.get(_ENV_OVERRIDE) or "default"
-        self._entries: dict[str, tuple[list[str], type[BaseModel]]] = {}
+        # Ordered registrations: (yaml_path, model_cls, original fixture_name).
+        # ``original fixture_name`` is ``None`` for global sections that should
+        # always be included in generated templates regardless of fixture usage.
+        self._registrations: list[tuple[list[str], type[BaseModel], str | None]] = []
+        self._by_fixture: dict[str, int] = {}
         self._models: dict[str, BaseModel] = {}
         self._raw: dict[str, Any] | None = None
 
@@ -127,6 +193,8 @@ class ConfigRegistry:
             Pydantic model used to validate the section.
         fixture_name:
             Optional name used by :meth:`get`. Defaults to ``model_cls.__name__``.
+            When ``None``, the section is treated as global config and always
+            included by :meth:`generate_template`.
 
         Returns
         -------
@@ -134,7 +202,8 @@ class ConfigRegistry:
             ``self``, to allow chaining.
         """
         name = fixture_name or model_cls.__name__
-        self._entries[name] = (list(yaml_path), model_cls)
+        self._registrations.append((list(yaml_path), model_cls, fixture_name))
+        self._by_fixture[name] = len(self._registrations) - 1
         logger.v2("registered config section %r -> %s", yaml_path, model_cls.__name__)
         return self
 
@@ -188,10 +257,10 @@ class ConfigRegistry:
         """
         if fixture_name in self._models:
             return self._models[fixture_name]
-        if fixture_name not in self._entries:
+        if fixture_name not in self._by_fixture:
             raise ConfigError("unknown fixture name", fixture_name=fixture_name)
 
-        path, model_cls = self._entries[fixture_name]
+        path, model_cls, _ = self._registrations[self._by_fixture[fixture_name]]
         section = self._extract(path)
         try:
             model = model_cls.model_validate(section)
@@ -206,3 +275,47 @@ class ConfigRegistry:
 
         self._models[fixture_name] = model
         return model
+
+    # -- template generation (reverse of validation) -------------------------
+
+    def generate_template(self, used_fixtures: set[str] | None = None) -> dict[str, Any]:
+        """Render a ``dynamic.yaml``-style template from registered models.
+
+        Parameters
+        ----------
+        used_fixtures:
+            Optional set of pytest fixture names in use. When provided, a
+            section is included only if its registered ``fixture_name`` is in
+            the set. Sections registered without a fixture name (global config)
+            are always included.
+
+        Returns
+        -------
+        dict[str, Any]
+            Nested template dict mirroring the registered YAML paths.
+        """
+        template: dict[str, Any] = {}
+        for path, model_cls, fixture_name in self._registrations:
+            if used_fixtures is not None and fixture_name is not None:
+                if fixture_name not in used_fixtures:
+                    continue
+            section = _model_to_template(model_cls)
+            _set_path(template, path, section)
+        return template
+
+    def dump_template(
+        self,
+        path: str | Path,
+        used_fixtures: set[str] | None = None,
+    ) -> None:
+        """Write the generated template to *path* as a loadable ``dynamic.yaml``.
+
+        The template is wrapped under a ``default:`` key (with an empty ``envs:``)
+        so the file can be fed straight back into :class:`ConfigRegistry`.
+        """
+        rendered = {"default": self.generate_template(used_fixtures=used_fixtures), "envs": {}}
+        out = Path(path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        with out.open("w", encoding="utf-8") as fh:
+            yaml.safe_dump(rendered, fh, sort_keys=False, default_flow_style=False)
+        logger.v2("dumped config template -> %s", path)

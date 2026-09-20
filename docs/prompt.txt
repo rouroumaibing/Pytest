@@ -197,7 +197,7 @@ A thin wrapper over the official `kubernetes` client library for direct cluster 
 
 - **CRITICAL:** Depends on `kubernetes` (add to dependencies). Not to be confused with the HTTP `Client` - this talks directly to the cluster API server.
 - `from_kubeconfig(kubeconfig_dict)` classmethod for auth; `close()` to release the API client.
-- CRUD helpers for core resources (apps/core/networking groups): Deployment / StatefulSet / DaemonSet / Pod /Ingress / ConfigMap / Secret / Namespace - each with list/get/create/delete where applicable.
+- CRUD helpers for core resources (apps/core/networking groups): Deployment / StatefulSet / DaemonSet / Pod / Service / Ingress / ConfigMap / Secret / Namespace - each with list/get/create/delete where applicable.
 - `exec_in_pod(namespace, pod_name, command, timeout)` using `kubernetes.stream.stream`.
 - Errors wrapper in the framework exception hierarchy.
 

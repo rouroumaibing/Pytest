@@ -2,8 +2,10 @@
 
 This complements the HTTP management-plane :class:`~testkit.http.client.HTTPClient`
 by talking *directly* to the cluster API server via a kubeconfig (not through a
-REST management plane). ``kubernetes`` is imported lazily so the rest of the
-framework (and ``import testkit``) works without the optional dependency.
+REST management plane). ``kubernetes`` is a required dependency that is imported
+lazily, so the rest of the framework (and ``import testkit``) keeps working when
+the dependency is unavailable — only constructing a :class:`K8sClient` fails,
+with an install hint.
 
 The client exposes CRUD helpers for the common core/apps/networking resources
 and an ``exec_in_pod`` helper built on ``kubernetes.stream``. Every failure is
@@ -24,12 +26,11 @@ logger = get_logger("k8s")
 def _require_kubernetes() -> Any:
     """Import ``kubernetes`` on demand; raise a clear error if missing."""
     try:
-        import kubernetes  # type: ignore[import-not-found]  # noqa: PLC0415
+        import kubernetes  # noqa: PLC0415
     except ImportError as exc:  # pragma: no cover - exercised only without dep
         raise K8sError(
             "the 'kubernetes' package is required for K8sClient; "
-            "install it with 'pip install testkit' (kubernetes>=28) or "
-            "'pip install testkit[k8s]'",
+            "install it with 'pip install testkit' (kubernetes>=28)",
             original_exception=exc,
         ) from exc
     return kubernetes
@@ -181,7 +182,7 @@ class K8sClient:
         except Exception as exc:  # noqa: BLE001
             raise self._wrap(exc, "delete daemonset", namespace=namespace, name=name) from exc
 
-    # -- core: Pod / ConfigMap / Secret / Namespace ---------------------------
+    # -- core: Pod / Service / ConfigMap / Secret / Namespace ----------------
 
     def list_pods(self, namespace: str | None = None) -> Any:
         try:
@@ -208,6 +209,32 @@ class K8sClient:
             return self._core().delete_namespaced_pod(name, namespace)
         except Exception as exc:  # noqa: BLE001
             raise self._wrap(exc, "delete pod", namespace=namespace, name=name) from exc
+
+    def list_services(self, namespace: str | None = None) -> Any:
+        try:
+            if namespace:
+                return self._core().list_namespaced_service(namespace)
+            return self._core().list_service_for_all_namespaces()
+        except Exception as exc:  # noqa: BLE001
+            raise self._wrap(exc, "list services", namespace=namespace) from exc
+
+    def get_service(self, namespace: str, name: str) -> Any:
+        try:
+            return self._core().read_namespaced_service(name, namespace)
+        except Exception as exc:  # noqa: BLE001
+            raise self._wrap(exc, "get service", namespace=namespace, name=name) from exc
+
+    def create_service(self, namespace: str, body: object) -> Any:
+        try:
+            return self._core().create_namespaced_service(namespace, body)
+        except Exception as exc:  # noqa: BLE001
+            raise self._wrap(exc, "create service", namespace=namespace) from exc
+
+    def delete_service(self, namespace: str, name: str) -> Any:
+        try:
+            return self._core().delete_namespaced_service(name, namespace)
+        except Exception as exc:  # noqa: BLE001
+            raise self._wrap(exc, "delete service", namespace=namespace, name=name) from exc
 
     def list_configmaps(self, namespace: str | None = None) -> Any:
         try:

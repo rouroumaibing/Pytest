@@ -93,6 +93,16 @@ files = ["testkit"]
 module = ["pydantic", "pydantic.*", "pydantic_core", "pydantic_core.*"]
 follow_imports = "skip"
 
+# `kubernetes` is imported lazily (see testkit/k8s/client.py) and ships no
+# `py.typed` marker, so whether it is installed or not changes which error
+# mypy raises at the import site (`import-untyped` vs `import-not-found`).
+# Silencing it here keeps the result identical in both environments instead of
+# relying on a single `type: ignore[...]` code that goes stale in the other.
+[[tool.mypy.overrides]]
+module = ["kubernetes", "kubernetes.*"]
+follow_imports = "skip"
+ignore_missing_imports = true
+
 [tool.coverage.run]
 source = ["testkit"]
 branch = true

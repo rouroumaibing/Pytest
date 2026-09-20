@@ -19,6 +19,11 @@ Auto-generated from the package docstrings.
 ::: testkit.ssh.executor.SSHExecutor
 ::: testkit.ssh.executor.SSHResult
 
+## Kubernetes Client
+
+::: testkit.k8s.client.K8sClient
+::: testkit.k8s.quantities.to_mib
+
 ## Resource Pool
 
 ::: testkit.pool.resource_pool.ResourcePool

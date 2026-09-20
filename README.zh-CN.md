@@ -11,6 +11,7 @@
 | `ResourcePool` | 跨进程安全的资源池（YAML 持久化 + `FileLock`、重试、批量分配） |
 | `SSHExecutor` | SSH 命令执行——直连或跳板机（`direct-tcpip` 隧道）、架构探测 |
 | `HTTPClient` + `AuthStrategy` | REST 客户端，可插拔认证、双 Token 刷新、multipart 上传 |
+| `K8sClient` | 通过 kubeconfig 直连 Kubernetes API Server——Deployment / StatefulSet / DaemonSet / Pod / Service / Ingress / ConfigMap / Secret / Namespace 增删改查，外加 `exec_in_pod` |
 | `ConcurrentFixtureGuard` | 跨进程协调，仅一个 worker 构建共享 fixture |
 | `ConfigRegistry` | YAML 多环境合并 + `${VAR}` 占位符 + Pydantic 校验 |
 | `ResourceCleanup` | LIFO 逆序清理 + 重试 + 失败隔离 |

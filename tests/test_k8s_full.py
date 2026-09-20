@@ -126,6 +126,18 @@ _CRUD = [
         ("ns", {"kind": "Pod"}),
     ),
     ("delete_pod", ("ns", "p"), "CoreV1Api", "delete_namespaced_pod", ("p", "ns")),
+    # Services
+    ("list_services", (None,), "CoreV1Api", "list_service_for_all_namespaces", ()),
+    ("list_services", ("ns",), "CoreV1Api", "list_namespaced_service", ("ns",)),
+    ("get_service", ("ns", "svc"), "CoreV1Api", "read_namespaced_service", ("svc", "ns")),
+    (
+        "create_service",
+        ("ns", {"kind": "Service"}),
+        "CoreV1Api",
+        "create_namespaced_service",
+        ("ns", {"kind": "Service"}),
+    ),
+    ("delete_service", ("ns", "svc"), "CoreV1Api", "delete_namespaced_service", ("svc", "ns")),
     # ConfigMaps
     ("list_configmaps", (None,), "CoreV1Api", "list_config_map_for_all_namespaces", ()),
     ("list_configmaps", ("ns",), "CoreV1Api", "list_namespaced_config_map", ("ns",)),

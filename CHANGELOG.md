@@ -37,7 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `K8sClient`: thin direct-cluster client (kubeconfig auth) over the official
   `kubernetes` library, with CRUD helpers for Deployment / StatefulSet /
-  DaemonSet / Pod / Ingress / ConfigMap / Secret / Namespace and
+  DaemonSet / Pod / Service / Ingress / ConfigMap / Secret / Namespace and
   `exec_in_pod` (§19). `kubernetes` is a required dependency, imported lazily.
 - `to_mib` quantity helper normalizing K8s quantity strings to MiB (§22).
 - `SSHExecutor` enhancements: `scp_via_jump` (chunked SFTP), `scp_via_double_jump`
@@ -55,6 +55,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `TokenAuth` now constructible with `access_token=None`; the token is fetched
   lazily on the first `get_headers()` call (§26).
 - `WaitHelper.wait_until_deleted` treating `ResourceNotFoundError` / 404 as deleted (§27).
+- `K8sClient` / `to_mib` are now documented: a `Kubernetes Client` row in both
+  READMEs, a `docs/user-guide/k8s-client.md` page covering connection, the CRUD
+  helpers, `exec_in_pod`, error context and quantity normalization, and a
+  matching API Reference section (§19, §22).
 
 ### Fixed
 
@@ -64,6 +68,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   honour the "equivalent 404 signal" case for framework errors (§27).
 - `parallel_map` no longer drops successful `None` results — only failed or
   skipped slots are omitted (§21).
+- `mypy` type-checking is now environment-independent: the `kubernetes` import
+  is silenced by a per-module override instead of an inline
+  `type: ignore[import-not-found]`, which became an `unused-ignore` error
+  wherever `kubernetes` actually was installed (as in CI).
+- `K8sClient`'s missing-dependency error no longer advertises a non-existent
+  `testkit[k8s]` extra, and the `k8s` module docstrings now describe
+  `kubernetes` the way the rest of the project does — a required dependency
+  that is imported lazily (§19).
 
 [0.1.0]: https://github.com/example/testkit/releases/tag/v0.1.0
 

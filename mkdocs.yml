@@ -55,6 +55,7 @@ nav:
   - User Guide:
       - HTTP Client: user-guide/http-client.md
       - SSH Executor: user-guide/ssh-executor.md
+      - Kubernetes Client: user-guide/k8s-client.md
       - Resource Pool: user-guide/resource-pool.md
       - Fixture Guard: user-guide/fixture-guard.md
       - Resource Cleanup: user-guide/resource-cleanup.md

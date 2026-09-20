@@ -43,6 +43,8 @@ FILE_PATTERNS=(
   "*.pyd"
   ".coverage"
   ".coverage.*"
+  "cov.json"
+  "coverage.json"
 )
 
 EXCLUDE_PRUNE="-not -path '*/.git/*' -not -path '*/.workbuddy/*'"

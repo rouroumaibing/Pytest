@@ -11,6 +11,7 @@ A generic, **business-agnostic** Python test framework for systems composed of a
 | `ResourcePool` | Cross-process-safe resource pool (YAML persistence + `FileLock`, retries, batch allocation) |
 | `SSHExecutor` | SSH command execution — direct or jump-host (`direct-tcpip` tunnel), architecture detection |
 | `HTTPClient` + `AuthStrategy` | REST client with pluggable auth, dual-layer token refresh, multipart upload |
+| `K8sClient` | Direct Kubernetes API-server access via kubeconfig — CRUD for Deployment / StatefulSet / DaemonSet / Pod / Service / Ingress / ConfigMap / Secret / Namespace, plus `exec_in_pod` |
 | `ConcurrentFixtureGuard` | Cross-process coordination so only one worker builds a shared fixture |
 | `ConfigRegistry` | YAML multi-env merge + `${VAR}` substitution + Pydantic validation |
 | `ResourceCleanup` | LIFO teardown with retries and failure isolation |

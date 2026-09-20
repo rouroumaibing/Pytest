@@ -1,4 +1,4 @@
-"""Kubernetes direct-client utilities (optional, requires the ``kubernetes`` dep)."""
+"""Kubernetes direct-client utilities (requires ``kubernetes``, imported lazily)."""
 
 from testkit.k8s.client import K8sClient
 from testkit.k8s.quantities import to_mib

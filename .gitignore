@@ -21,6 +21,8 @@ env/
 .pytest_tmp/
 .coverage
 .coverage.*
+cov.json
+coverage.json
 htmlcov/
 .tox/
 .mypy_cache/
@@ -36,3 +38,6 @@ site/
 .idea/
 .vscode/
 .DS_Store
+
+# --- AI 工作记忆(本地数据,不入库) ---
+.workbuddy/

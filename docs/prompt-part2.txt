@@ -1,0 +1,82 @@
+# Task
+
+Generate two governance documents for a business API-automation test project
+
+- **A. `test-case-development-flow.md`** - a self-contained, anti-rework test-case development workflow (Chinese).
+- **B. `case-design-template.md`** - a requirements-only template for test-case design documents (Chinese).
+
+Both must be **converagent, not expansive:** reference existing project assets
+instead of duplicating them. Keep total line count small and every line load-bearing.
+
+# Architectural Principles(Each Must Be Reflected)
+
+## A. test-case-development-flow.md
+
+### A1. Single-file, self-contained, concise(target ~70 lines)
+- Core principle stated first: **decision-before-coding** - later rework
+ (review refactors, environment waiting, doc rework) is almost always a 
+ decision that was deferred past the coding start.
+
+### A2. Step 0 - six upfront decisions (decide before writing code)
+| # | decision | key points |
+|---|----------|----------|
+| 1 | validation points |operation -> assertion, pass criteria, assertion-not-overclaiming (this is the premise of all decisions) |
+| 2 | scenario placement | HTTP interface -> API case dir; node/cluster commands -> SSH case dir |
+| 3 | layering | clent=HTTP client / ssh=node ops /utils=pure tools / orchestration=composition; SSH ops forbidden in client |
+| 4 | reuse check | grep root conftest + fixtures/clients registry first; same responsibility -> reuse or extend Client, never duplicate |
+| 5 | module boundaries | single-responsibility file list. cyclomatic < 6; complex cases (multi-step/interruptible/shared resources) additionally fix architecture: dependency direction (no bidirectional refs), state machine/resume (checkpoint fields, persistence, resume granularity); **one-line framework/business boundary rule**: specific concepts/data  formats -> business project; generic mechanisms or reused by > 3 doamins -> framework; single-scenario-specific -> business |
+| 6 | desgin docs | new Client/new pattern/structure change -> read `docs` desgin doc BEFORE code, not after; design-doc requirements reference case-design-template.md (one line) |
+- **Output**: one page: validation point + layer placement + file list + one-line responsibility per file +depended existing assets.
+
+### A3. 5-step flow (each step gated by previous)
+1. raw dic -> Markdown (store in `docs/<feature>/`, < 501 lines; screenshots.command output transcribed to text with source annotation; every command annotated with source doc)
+2. split scenarios + upfront constraints (variation dimensions crossed -> one `test_` method per scenario; all "if X" become scenario attributes or pre-conditions; **target: zero if/else in execution code**)
+3. inventory assets, don't re-create (fixtures: grep root conftest; client: add method when capability missing, not fixture patches; config: fixture dynamic -> YAML > env var; red line: no duplicate client/fixture)
+4. write plan doc + code skeleton (phases per exection order -> `docs/<feature>-plan/`; skeleton: core classes, test file, config model, conftest)
+5. implement stage-by-stage with self-checks (below)
+
+### A4. 5-item slf-check per code block
+1. three-part docstring (前置/测试/预期) + assertions with msg, not overclaiming
+2. layering compliance: Client returns Model (not raw dict), Model holds no Client ref, complex bodies via Builder, request headers via extra_headers, no hardcoded passwordsm logger not print
+3. exceptions not swallowed (empty except MUST have comment), yield-cleanup inside try/finally, `__init__.py`/conftest hold no business logic
+4. cyclomatic < 6, no mutable defaults, waiting via WaitHelper polling (no fixed sleep)
+5. `python -m py_compile` + `pytest --collect-only` pass
+
+### A5. Long-flow / heavy-resource operations MUST
+- idempotency + resume-from-breakpoint (write state marker after each step, check before executing, skip completed; rerun continues from break, never rebuild envirnment)
+- immediate cleanup registration (register right after the operation, not at case end)
+- two-level verification (lightweight logic verification first (mock/no-side-eddect reads) -> converge -> one real-resource end-to-end;resume as fallback)
+
+### A6. Closeout
+- failures diagnosed from `logs/` -> after bug fix grep same-pattern occurrences (same method/same pattern/ same resource dependency) ->  update affected `docs/` docs per sync rules.
+
+### A7. Rework-source mapping table + one-sentence summary
+- table: rework symptom -> root case -> upfront action (5 rows max)
+- final one-liner: "decide 6 items in 30 min before coding, self-check 5 rules during implementation, orchestrationn layer built-in idempotent resume, only one real-resource verification per run - review-level rework mostly eliminated"
+
+## B. case-design-template.md
+
+### B1. Requirements-only template
+- Eachsection states **REQUIREMENTS** (what must be covered) + **one-line from anchor** (shape only, e.g. "table 约束｜说明"； NO filled example, NO mermaid template, NO interface signature examples).
+- **AI-generated artifacts must Not appear**: diagrams. interface signatures, filled samples, source-material inventory tables.
+- Optional sections may be "N/A"; do not force full chapters.
+
+### B2. Sections
+- 1. 背景、约束与目标: business background (why, from requirement/defect/regression, motive not steps); desgin contraints valid for all cases/code paths (layering placement, resource semantics, backend implict contraints incl. error codes);common pre-check checklist (env/resource states; skip vs fail); case list one row per scenario (ID + method + one-liner + phase; ID style `API-<Domain>-<Action>`);per-scenario constraint table targeting **zero if/else in execution code**
+
+- 2. 设计逻辑: every tradeoff recorded as challenge -> tradeoff choice -> abandoned reason (no-tradeoff -> state conclusion); long/repeatable flows: stage division, state checkpoints (persistence/resume granularity), idempotency
+- 3. 核心数据结构: Model fields aligned with backed json tags; complex bodies via Builder (chainable with_ + build); convenience properties (e.g. `organization_name = metadata.name`) with declared source
+- 4. 接口定义: signature + one-line responsibility + collaboration summary ("to talk to X: A -> B -> C");reuse existing Client, no new copies (grep root conftest + registry confirmed)
+- 5. 一致性校验: each case in 1.4 has a `test_` method; each operation in 2 has ab interface in 4;doc-vs-implementation diff table filled during implementation/runtime
+- 6.变更历史: one row per change (版本｜日期｜变更｜原因)；baseline = design starting point (branch/commits/code files recorded in 1.1), NOT abandoned intermediate designs
+
+### B3. Cross-references (no duplication)
+- B references A's reuse/self-check sections in one line (场景/分层归属、复用、代码自查->flow.md 步骤 0/3/5;框架/业务边界->flow.md 决策 5 一句话)
+- A references B in one line (设计文档产出要求见case-design-template.md)
+
+# Output Requirements
+
+1. Both documents in **Simplified Chinese**, Markdown.
+2. Output A first, then B
+3. A 约等于70 lines， B 约等于 45 lines - every line load-bearing no filler.
+4. Keep the "single-file self-contained" spirit of A and the "requirements-only" spirit of B

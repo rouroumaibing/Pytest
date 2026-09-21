@@ -27,6 +27,8 @@ theme:
 exclude_docs: |
   prompt.txt
   new_testcase_pipeline.txt
+  test-case-development-flow.md
+  case-design-template.md
   DESIGN.md
   DESIGN.html
 

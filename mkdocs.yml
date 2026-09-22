@@ -26,7 +26,6 @@ theme:
 # that are not part of the published site.
 exclude_docs: |
   prompt.txt
-  new_testcase_pipeline.txt
   test-case-development-flow.md
   case-design-template.md
   DESIGN.md

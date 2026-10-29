@@ -60,6 +60,7 @@ nav:
       - Resource Pool: user-guide/resource-pool.md
       - Fixture Guard: user-guide/fixture-guard.md
       - Resource Cleanup: user-guide/resource-cleanup.md
+      - Case Dependencies: user-guide/case-dependencies.md
       - Config Registry: user-guide/config-registry.md
       - WaitHelper: user-guide/wait-helper.md
       - Pipeline: user-guide/pipeline.md

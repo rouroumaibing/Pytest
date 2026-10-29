@@ -55,6 +55,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `TokenAuth` now constructible with `access_token=None`; the token is fetched
   lazily on the first `get_headers()` call (§26).
 - `WaitHelper.wait_until_deleted` treating `ResourceNotFoundError` / 404 as deleted (§27).
+- `testkit_depends_on` pytest marker: a test marked with it is skipped (never
+  failed) when any named dependency test failed, skipped, or has no result
+  yet - case-level failure blocking that keeps related cases off a broken
+  scene, with cascading skips and `--strict-markers` support (§28). Hardening:
+  a dependency that fails during setup (no call phase) is recorded as failed
+  (accurate skip reason); an unresolved dependency name (typo, or a bare name
+  on a parametrized variant) emits a warning in single-process runs; under
+  pytest-xdist a cross-worker dependency without a shared `xdist_group` emits
+  a warning so the silent skip is surfaced (§28).
 - `K8sClient` / `to_mib` are now documented: a `Kubernetes Client` row in both
   READMEs, a `docs/user-guide/k8s-client.md` page covering connection, the CRUD
   helpers, `exec_in_pod`, error context and quantity normalization, and a

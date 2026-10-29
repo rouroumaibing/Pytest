@@ -292,7 +292,26 @@ A small generic helper on the polling utility, proven by three business usages (
 
 ---
 
-## 28. Verification Checklist (Additions)
+## 28. Case-Level Failure Blocking (`testkit_depends_on`)
+
+A generic pytest marker that stops *dependent test cases* from running (as
+`skipped`, never as failed) when the case they depend on did not produce a
+passing result. This is the test-item-level counterpart of the Pipeline's
+stage-level skip (§11): a failed case must not let related cases run and
+overwrite the fault scene. The framework provides the mechanism only; the
+skip-vs-fail judgment for environment preconditions stays in case code.
+
+- `@pytest.mark.testkit_depends_on(*names)` - registered automatically by the plugin via `pytest_configure` (no conftest needed). Each name is either a full nodeid or a bare test function name (matched against the tail of a recorded nodeid).
+- **CRITICAL:** Dependencies are evaluated at *setup* of the dependent test. For each name, the plugin looks up the most recent outcome in a per-session result registry (updated in the same `pytest_runtest_makereport` hookwrapper that already stashes failures, §14). If the outcome is not `passed` - i.e. `failed`, `skipped`, or *no result yet* - the dependent test calls `pytest.skip` with a reason naming the dependency and its outcome. A dependency with no result yet counts as not-passed (conservative), so dependents must be collected after their dependencies.
+- **CRITICAL:** Skipping cascades: a test skipped by this mechanism is recorded as `skipped`, so tests depending on it are skipped as well.
+- **CRITICAL:** A dependency failure must never turn the dependent test into a failure - the failing signal stays on the original case only.
+- **CRITICAL:** Dependency names are resolved against the set of *collected* test nodeids at setup. A bare name or full nodeid that matches none of them - a typo, or a bare name pointing at a parametrized variant (whose nodeid carries a `[...]` suffix and therefore does not end with the bare name) - makes the dependent skip silently. Under single-process runs the plugin emits a warning so the broken dependency name is visible; under pytest-xdist the same condition is reported via the cross-worker warning below.
+- The registry is per-process. Under `pytest-xdist`, cases that depend on each other **must** share an xdist group (`--dist loadgroup` + `@pytest.mark.xdist_group` on *both* the dependency and the dependent) and the dependency must be collected first. Without a matching group the two may run on different workers, the dependency's outcome is invisible to the dependent, and the dependent is skipped silently - a cross-worker warning is emitted to surface the misconfiguration. Single-process runs need no extra configuration.
+- Running strategy (documentation-level constraint): worker count stays user-configurable through pytest-xdist (`-n`). Resource-constrained environments should run `-n 1` (serial) or group cases sharing scarce resources with `--dist loadgroup` and allocate them through the ResourcePool (§1).
+
+---
+
+## 29. Verification Checklist (Additions)
 
 All must pass before release:
 
@@ -304,4 +323,6 @@ All must pass before release:
 - [] Config template generation produces a valid YAML file loadable back through `ConfigRegistry`
 - [] `ResourceCleanup.remove` prevents double-cleanup (registered then removed -> not executed at `cleanup`)
 - [] `TokenAuth` constructs with `access_token=None` and performs zero network IO until the first `get_headers()` call
-- [] `wait_until_deleted` treats raised `ResourceNotFoundError` as deleted and times out otherwise 
+- [] `wait_until_deleted` treats raised `ResourceNotFoundError` as deleted and times out otherwise
+- [] `testkit_depends_on` records a dependency that fails during setup (no call phase) as failed, and emits a warning for a dependency name matching no collected test and for cross-worker dependencies without a shared xdist group under pytest-xdist (§28)
+- [] `testkit_depends_on` skips dependents when the dependency failed, skipped, or has no result yet; a passed dependency does not skip; unrelated tests are unaffected
